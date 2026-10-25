@@ -1,0 +1,109 @@
+# Verification page (`verify.meteoverdict.cz`)
+
+Static site for the **40 main ČHMÚ stations** (`register/stations40.json`). The first screen is the whole recorded period: which series are closer to the observations, at every scored snapshot, not a map of okresy. A second screen compares one or more ledger releases at a chosen station.
+
+The apex `meteoverdict.cz` is a different site. This repository only publishes the subdomain, via the `CNAME` file `verify.meteoverdict.cz`. Do not point the apex at this Pages site.
+
+The browser never sees a snapshot tar and there is no proxy or Worker. It loads JSON that GitHub Actions derives from the public releases, the ledger and `obs/`.
+
+## How the data is derived
+
+`python3 scripts/derive_pages.py` (needs `polars`, see `requirements-score.txt`):
+
+1. Checks the ledger hash chain (`scripts/verify_public.py`).
+2. Keeps rows with `status: ok` whose release is **not** listed in `ledger/withdrawn.json`. Withdrawn tars are not downloaded and not scored.
+3. Downloads each `snap-*.tar` (or reads `--snap-dir`) and requires `sha256` to equal `asset.sha256` in the ledger. The tar is only read.
+4. Reduces the public station files the same way as `scripts/score_stations.py` (AI, blend, public models; rule R1 drops a model run that was not available at the snapshot; nothing is filled from an older run).
+5. Builds observations for each UTC day in this order:
+   - newest `obs/obs-YYYYMMDD.final*.csv` (checked ČHMÚ `recent/`) if one exists;
+   - otherwise `obs/obs-YYYYMMDD.csv` (provisional, ČHMÚ `now/`);
+   - otherwise, for a day that has **no** file in `obs/` yet, the newest snapshot `obs-public`, cleaned with the same quality codes and limits as `scripts/fetch_obs.py`.
+   A final day is not gap-filled from a snapshot. A provisional day stays provisional until a final file is published. The catalog lists the quality and the source of every day.
+6. Scores each `model_version` on its own (rule R11). Lead D+k is `valid_time − snapshot_time` in `[24k, 24k+24)` hours, k = 1..5 (rule R2).
+7. Writes `catalog.json`, `scores.json` and `snaps/<id>.json.gz`.
+
+Anyone can rerun it. The catalog records the script sha256, the chain head, the asset hashes and the observation-file hashes.
+
+### Fairness
+
+Aligned with `preregistration/v1.md` where this page can be (R1–R5, R7, R11). It does not run the block bootstrap (R8) and it does not say that a model works.
+
+For each variable and lead, non-AI series are added from the fullest coverage to the sparsest **while the common station-hours stay at least half of the hours where the AI and an observation both exist, and at least 24 pairs**. MAE, bias and RMSE in that table all use that one set. A series that would shrink the set further is listed under “not in this table”, with the reason. It is not given a second MAE on a different set of hours.
+
+The **all-leads** number is the unweighted mean of those rounded per-lead scores. A series that is missing from a lead is skipped for that lead, not imputed.
+
+The ranking table is that MAE order. The AI is not moved to the top. The **charts** open with three series: MeteoVerdict AI, plus the two other series with the lowest MAE for the current selection, even when the AI itself is not among the three closest. That preselection is only which lines are drawn; the user can change it.
+
+Rule R7 is shown as a label (`not enough data` / `preliminary` / 60 days recorded). Sixty days still do not, by themselves, mean a model works.
+
+### Schema
+
+`catalog.json`
+
+- `stations`, `names`, `units`, `variable_labels`, `leads`, `thresholds`
+- `versions[]`: `model_version`, snapshot count, first/last time, R7 `key`, `days`, `text`
+- `snapshots[]`: id (`20261025T0000Z`), time, issue time, model version, asset sha256, chart file name, gzip sha256 and size
+- `obs_days[]`: `day`, `quality` (`final` or `provisional`), `source`
+- `withdrawn_skipped`, `provenance`
+
+`scores.json` → `by_version[model_version][variable]`
+
+- `leads["1".."5"]`: `series` in MAE order, parallel `mae` / `bias` / `rmse`, `n` (common pairs), `ai_pairs`, `excluded`, `dropped_run_unavailable`, `short`
+- `overall`: unweighted mean of the rounded lead scores; `leads_for[series]` lists which leads entered the mean
+- `by_day`: one MAE per snapshot UTC day, for the same series as that lead
+- `by_station`: the same series, restricted to each station’s hours
+
+`snaps/<id>.json.gz` (gzip of JSON, `enc: "delta-tenths-v1"`)
+
+- `lead0` (24), `hours`, `scale` (10), `stations`, `series`
+- `v[variable].obs` and `v[variable].s[i]`: one row per station, joined by `;`. Each row is comma-separated integers. The first present value is `round(x * 10)`; later present values are deltas from the previous present value; an empty token is a missing hour. Trailing gaps are omitted.
+- Variables in the chart file: `temperature_2m`, `wind_speed_10m`, `precipitation`. Cloud, sunshine and part-of-day gusts are in `scores.json` only.
+- The overview uses full-precision errors. The snapshot screen recomputes MAE in the browser from these tenths (at most 0.05 off each value).
+
+## Size budget
+
+Target: about **100 MB/year** of published bytes, which is about **50–100 KB gzip per snapshot** at four snapshots a day.
+
+The chart file is the bulky part: three variables, 40 stations, every series, leads from 24 h out to the end of the release (about 70–90 hours), delta-encoded tenths, then gzip level 9.
+
+Measured on the eight public-v2 releases of 24–25 Oct 2026 (21 series): **raw JSON 390–550 KB per snapshot, gzip 8–13 KB** (mean about 11 KB). Smooth fields and the many missing hours compress very well. The size budget is set for a less friendly year: if gzip only reaches about 7:1, a snapshot is about 70 KB and `4 × 365 × 70 KB ≈ 100 MB/year`. `catalog.json` and `scores.json` stay small beside that (one MAE per series per lead per day). The published files are the gzip payloads, so the `pages-data` branch tracks the transfer size rather than the raw JSON.
+
+Those files are **not** committed to `main`. The workflow `pages-data` force-pushes a single commit to the branch `pages-data` (the same pattern as the `derived` branch: history does not accumulate). CI’s temp parquet of joined pairs is deleted at the end of the job; the reduced-snapshot cache stays in Actions cache, keyed by the tar sha256.
+
+## Enable GitHub Pages
+
+1. Merge this to `main`. That runs `pages-data` (the workflow file and `scripts/derive_pages.py` are on the path filter) and `pages`.
+2. In the repository: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+   Do not also set the source to the `pages-data` or `gh-pages` branch. `pages-data` is only the JSON. The site is the Actions artifact from `pages.yml`, which copies that JSON in at build time.
+3. After the first successful `pages` run, Settings → Pages should show the custom domain `verify.meteoverdict.cz` because `web/public/CNAME` is copied into the artifact. If it does not, set the custom domain to exactly `verify.meteoverdict.cz`. Do **not** enter `meteoverdict.cz`.
+4. When the certificate exists, enforce HTTPS.
+
+`workflow_run` redeploys the site after each successful `pages-data` run, so new snapshots show up without a change under `web/`.
+
+## DNS
+
+At the DNS host for `meteoverdict.cz`, add only:
+
+| Name | Type | Target |
+|---|---|---|
+| `verify` | CNAME | `jerrywoof.github.io` |
+
+Leave the apex records (`@`, and `www` if it exists) as they are. They serve the other site. GitHub’s target is the account host `jerrywoof.github.io`, not a path with the repository name. A trailing dot (`jerrywoof.github.io.`) is also fine if the DNS host wants it.
+
+Check, after Pages is enabled: `dig CNAME verify.meteoverdict.cz` should show `jerrywoof.github.io`. The first certificate can take a while after DNS is visible.
+
+## Locally
+
+```bash
+pip install -r requirements-score.txt
+python3 scripts/derive_pages.py --cache /tmp/mv-pages-cache --out web/public/data
+cd web && npm ci && npm test && npm run dev
+```
+
+`web/public/data/` is gitignored apart from `.gitkeep`. `npm run build` writes `web/dist`, including `CNAME`.
+
+## What this does not do
+
+- It does not modify, re-upload or rewrite `snap-*` release assets.
+- It does not change DNS or Pages settings for the apex.
+- It does not score withdrawn releases, missing snapshots, or the forecasts issued between the four daily snapshots.

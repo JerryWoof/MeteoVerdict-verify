@@ -1,0 +1,67 @@
+name: pages-data
+# Builds the derived JSON for verify.meteoverdict.cz. Snapshot tars are downloaded and checked
+# against the ledger sha256; they are not modified. Withdrawn releases are skipped.
+# The result is force-pushed as ONE commit on `pages-data` (history does not accumulate, main stays small).
+# The `pages` workflow copies that branch into the GitHub Pages artifact.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ledger/**"
+      - "obs/**"
+      - "register/stations40.json"
+      - "scripts/derive_pages.py"
+      - "scripts/score_stations.py"
+      - "scripts/fetch_obs.py"
+      - "scripts/verify_public.py"
+      - ".github/workflows/pages-data.yml"
+  release:
+    types: [published]
+  schedule:
+    # After the 00:15 / 06:15 / 12:15 / 18:15 UTC snapshots, in case the ledger push was missed.
+    - cron: "45 1,7,13,19 * * *"
+  workflow_dispatch:
+    inputs:
+      fresh:
+        description: "Ignore the reduced-snapshot cache and download every tar again"
+        type: boolean
+        default: false
+permissions:
+  contents: write
+concurrency:
+  group: pages-data
+  cancel-in-progress: false
+jobs:
+  derive:
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'snap-')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install polars==2.0.0
+      - uses: actions/cache@v4
+        if: ${{ !inputs.fresh }}
+        with:
+          path: cache
+          key: pages-data-${{ github.run_id }}
+          restore-keys: pages-data-
+      - name: Verify the chain and derive scores
+        run: |
+          python3 scripts/verify_public.py
+          python3 scripts/derive_pages.py --cache cache --out derived-pages
+      - name: Publish branch pages-data (one commit, replaced every time)
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd derived-pages
+          git init -q -b pages-data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "pages-data from main@${GITHUB_SHA::8}"
+          git push -q -f "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" pages-data
