@@ -130,6 +130,16 @@ main {
   padding: 0.28rem 0.65rem;
 }
 .segmented button.active { background: var(--teal); color: white; border-color: var(--teal); }
+.segmented button.dim {
+  color: var(--muted);
+  border-style: dashed;
+}
+.segmented button.dim.active {
+  background: #4b5563;
+  color: white;
+  border-style: solid;
+  border-color: #4b5563;
+}
 
 .fair, .hint { font-size: 0.92rem; line-height: 1.45; }
 .banner {
@@ -138,6 +148,31 @@ main {
   padding: 0.8rem 1rem;
   line-height: 1.45;
 }
+.lead-empty {
+  background: var(--warn);
+  border-radius: 12px;
+  padding: 1rem 1.1rem 1.1rem;
+  margin: 0.2rem 0 0.8rem;
+}
+.lead-empty h2 { margin-bottom: 0.35rem; }
+.lead-empty p { margin: 0.4rem 0; line-height: 1.45; }
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.9rem;
+  list-style: none;
+  padding: 0;
+  margin: 0.15rem 0 0.8rem;
+  font-size: 0.88rem;
+}
+.legend i {
+  display: inline-block;
+  width: 1.5rem;
+  margin-right: 0.35rem;
+  border-top: 3px solid;
+  vertical-align: middle;
+}
+.legend i.dotted { border-top-style: dotted; }
 
 .series { border: 0; margin: 0.4rem 0 0.2rem; padding: 0; }
 .series legend { font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 0; }

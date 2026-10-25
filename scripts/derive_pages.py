@@ -13,7 +13,8 @@ What is written (see ``web/README.md`` for the full schema):
 
 Fairness (preregistration R1–R5, R7, R11):
 
-* Lead D+k is ``valid_time − snapshot_time`` in ``[24k, 24k+24)`` hours, k = 1..5.
+* Lead D+k is ``valid_time − snapshot_time`` in ``[24k, 24k+24)`` hours, k = 0..5.
+  D+0 is the first day after the snapshot. ``scripts/score_stations.py`` still scores k = 1..5.
 * A public-model value counts only when its run was available at the snapshot (R1, same predicate
   as ``scripts/score_stations.py``). Nothing is filled from an older run (R3).
 * One table per variable and lead. Series other than the AI are added from the fullest coverage to
@@ -58,7 +59,7 @@ import fetch_obs  # noqa: E402
 import score_stations as ss  # noqa: E402
 import verify_public as vp  # noqa: E402
 
-VERSION = "1"
+VERSION = "2"
 ENC = "delta-tenths-v1"
 UTC = timezone.utc
 # A series needs this many AI-paired hours, and the common set must keep at least this many.
@@ -67,8 +68,9 @@ MIN_PAIRS = 24
 KEEP_FRACTION = 0.5
 SCALE = 10
 CHART_VARS = ("temperature_2m", "wind_speed_10m", "precipitation")
-LEADS = ss.LEADS
-LEAD0 = 24
+# D+0..D+5. Same band formula as score_stations (D+k = [24k, 24k+24)), which itself keeps k = 1..5.
+LEADS = (0, 1, 2, 3, 4, 5)
+LEAD0 = 0
 LEAD_END = 24 * (LEADS[-1] + 1)  # 144
 META = {"snap_id", "snap_day", "station_id", "valid_time", "obs"}
 VAR_LABELS = {
@@ -448,11 +450,16 @@ def write_gz(path: Path, doc: dict) -> tuple[int, int, str]:
 
 
 def chart_document(snap: LoadedSnap, kept: pl.DataFrame, obs: pl.DataFrame, station_ids: list[str]) -> dict:
-    """Forecasts (after R1) and observations on leads 24 h .. <144 h, for the three chart variables."""
+    """Forecasts (after R1) and observations from lead 0 up to <144 h, for the three chart variables.
+
+    Each series is stored on its own. A previous draft keyed only by station and hour, so every
+    model row was a copy of whichever series was seen first.
+    """
     row = snap.row
     when = vp.parse_time(row["snapshot_time"])
     names: set[str] = set()
     hours = 0
+    window = kept
     if not kept.is_empty():
         window = kept.filter(
             pl.col("variable").is_in(CHART_VARS),
@@ -478,14 +485,16 @@ def chart_document(snap: LoadedSnap, kept: pl.DataFrame, obs: pl.DataFrame, stat
         }
         for variable in CHART_VARS:
             sub = window.filter(pl.col("variable") == variable)
-            idx: dict[tuple[str, int], float] = {}
-            for sid, lead, value in sub.select("station_id", "lead_h", "value").iter_rows():
-                idx.setdefault((sid, int(lead)), float(value))
+            idx: dict[tuple[str, str, int], float] = {}
+            for sid, series, lead, value in sub.select("station_id", "series", "lead_h", "value").iter_rows():
+                if value is None:
+                    continue
+                idx[(series, sid, int(lead))] = float(value)
             series_rows = []
             for name in order:
                 rows = []
                 for sid in station_ids:
-                    rows.append([idx.get((sid, LEAD0 + hour)) for hour in range(hours)])
+                    rows.append([idx.get((name, sid, LEAD0 + hour)) for hour in range(hours)])
                 series_rows.append(encode_stations(rows))
             obs_rows = []
             for sid in station_ids:
@@ -511,7 +520,7 @@ def chart_document(snap: LoadedSnap, kept: pl.DataFrame, obs: pl.DataFrame, stat
 
 
 def pairs_frame(kept: pl.DataFrame, obs: pl.DataFrame, snap_id: str, snap_day: str) -> pl.DataFrame:
-    """Long pairs that have an observation, leads D+1..D+5, after R1. One row per series value."""
+    """Long pairs that have an observation, leads D+0..D+5, after R1. One row per series value."""
     if kept.is_empty() or obs.is_empty():
         return pl.DataFrame()
     joined = kept.join(obs, on=["station_id", "valid_time", "variable"], how="inner")
@@ -764,7 +773,7 @@ def build_dataset(
     provenance = {
         "script": {"file": "scripts/derive_pages.py", "version": VERSION, "sha256": sha256_file(script) if script.exists() else None,
                    "polars": pl.__version__},
-        "rules": "preregistration/v1.md R1–R5, R7, R11. Leads D+k = [24k, 24k+24) h. Common pairs. No filling. Withdrawn snaps excluded.",
+        "rules": "preregistration/v1.md R1–R5, R7, R11. Leads D+k = [24k, 24k+24) h for k = 0..5 (D+0 is the first 24 h; the preregistration's main bands remain D+1..D+3). Common pairs. No filling. Withdrawn snaps excluded.",
         "thresholds": {
             "min_pairs": MIN_PAIRS,
             "keep_fraction": KEEP_FRACTION,
@@ -849,7 +858,7 @@ def _member(data: bytes, name: str) -> bytes | None:
 def load_snap_bytes(row: dict, data: bytes, stations: list[str]) -> LoadedSnap:
     if vp.sha256(data) != row["asset"]["sha256"]:
         raise SystemExit(f"FAIL {row['snapshot_time']}: {row['asset']['name']} does not match the ledger sha256")
-    frame = ss.reduce_snapshot(data, vp.parse_time(row["snapshot_time"]), stations)
+    frame = ss.reduce_snapshot(data, vp.parse_time(row["snapshot_time"]), stations, min_lead=LEAD0)
     raw = _member(data, "obs-public.parquet")
     obs_public = pl.read_parquet(io.BytesIO(raw)) if raw else None
     return LoadedSnap(row=row, frame=frame, obs_public=obs_public)

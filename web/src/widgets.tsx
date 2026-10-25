@@ -144,7 +144,7 @@ export function Segmented<T extends string | number>({
 }: {
   label: string;
   value: T;
-  options: { value: T; label: string; title?: string }[];
+  options: { value: T; label: string; title?: string; dim?: boolean }[];
   onChange: (value: T) => void;
 }) {
   return (
@@ -157,7 +157,7 @@ export function Segmented<T extends string | number>({
           role="radio"
           aria-checked={option.value === value}
           title={option.title}
-          className={option.value === value ? "active" : ""}
+          className={[option.value === value ? "active" : "", option.dim ? "dim" : ""].filter(Boolean).join(" ")}
           onClick={() => onChange(option.value)}
         >
           {option.label}

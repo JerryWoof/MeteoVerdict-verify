@@ -198,20 +198,53 @@ def test_final_obs_beats_provisional_and_snapshot_and_gap_days_come_from_obs_pub
     assert overall["series"][0] == "model_a"
     assert overall["mae"][overall["series"].index("ai")] == 1.0
 
+    assert catalog["leads"] == [0, 1, 2, 3, 4, 5]
     blob = (out / "snaps" / "20261025T0000Z.json.gz").read_bytes()
     assert blob[:2] == b"\x1f\x8b"
     import gzip
     doc = json.loads(gzip.decompress(blob))
     assert doc["enc"] == "delta-tenths-v1"
+    assert doc["lead0"] == 0
     assert doc["hours"] >= 48
     temps = doc["v"]["temperature_2m"]
     ai_row = dp.decode_row(temps["s"][doc["series"].index("ai")].split(";")[0], doc["hours"])
+    model_row = dp.decode_row(temps["s"][doc["series"].index("model_a")].split(";")[0], doc["hours"])
     obs_row = dp.decode_row(temps["obs"].split(";")[0], doc["hours"])
-    assert ai_row[0] == 11.0 and obs_row[0] == 10.0
+    # Lead 0 of this fixture has no forecast and no observation. D+1 starts at hour 24.
+    assert ai_row[0] is None and obs_row[0] is None
+    assert ai_row[24] == 11.0 and model_row[24] == 10.0 and obs_row[24] == 10.0
+    assert ai_row[24] != model_row[24]
     # The late-run guard is covered separately; ECMWF is not in this frame.
     assert "ecmwf_ifs" not in doc["series"]
     # Ranking payload does not invent a winner field.
     assert "winner" not in lead1
+
+
+def test_d0_is_scored_and_each_model_keeps_its_own_chart_row(tmp_path: Path):
+    obs = tmp_path / "obs"
+    obs.mkdir()
+    _obs_csv(obs / "obs-20261025.csv", "2026-10-25", 10.0)
+    # First 24 h after the snapshot: AI is +1 °C, model_a is +2 °C. No later hours, so D+1..D+5 stay empty.
+    snap = dp.LoadedSnap(row=_row(SNAP), frame=frame_from(_hours(SNAP, 0, 24, {"ai": 11.0, "model_a": 12.0})))
+    out = tmp_path / "data"
+    catalog = dp.build_dataset([snap], obs, _stations(), out)
+    assert catalog["leads"] == [0, 1, 2, 3, 4, 5]
+    scores = json.loads((out / "scores.json").read_text(encoding="utf-8"))
+    block = scores["by_version"]["meteoverdict_ai-v2"]["temperature_2m"]
+    assert set(block["leads"]) == {"0"}
+    assert block["leads"]["0"]["n"] == 24
+    assert block["leads"]["0"]["series"] == ["ai", "model_a"]
+    assert block["leads"]["0"]["mae"] == [1.0, 2.0]
+    assert block["overall"]["leads_used"] == [0]
+    import gzip
+    doc = json.loads(gzip.decompress((out / "snaps" / "20261025T0000Z.json.gz").read_bytes()))
+    assert doc["lead0"] == 0
+    temps = doc["v"]["temperature_2m"]
+    ai_row = dp.decode_row(temps["s"][doc["series"].index("ai")].split(";")[0], doc["hours"])
+    model_row = dp.decode_row(temps["s"][doc["series"].index("model_a")].split(";")[0], doc["hours"])
+    obs_row = dp.decode_row(temps["obs"].split(";")[0], doc["hours"])
+    assert ai_row[0] == 11.0 and model_row[0] == 12.0 and obs_row[0] == 10.0
+    assert ai_row[:24] != model_row[:24]
 
 
 def test_provisional_repo_file_beats_snapshot_obs(tmp_path: Path):

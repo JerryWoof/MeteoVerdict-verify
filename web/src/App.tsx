@@ -91,7 +91,7 @@ export function App() {
               )}
             </section>
             {tab === "overview" ? (
-              <Overview catalog={catalog} byVariable={byVariable} modelVersion={version} />
+              <Overview key={version} catalog={catalog} byVariable={byVariable} modelVersion={version} />
             ) : (
               <Snapshots catalog={catalog} />
             )}
@@ -104,7 +104,8 @@ export function App() {
       <footer>
         <p>
           Rules: preregistration v1 (R1–R5, R7, R11). Lead D+k is the half-open window from 24×k hours to 24×k+24 hours
-          after the snapshot. Common pairs only; a missing run is not filled. Times are UTC.
+          after the snapshot, including D+0 (the first 24 hours) through D+5. The preregistration’s main bands are
+          still D+1 to D+3. Common pairs only; a missing run is not filled. Times are UTC.
         </p>
         <p>
           <a href="https://github.com/JerryWoof/MeteoVerdict-Verify">Repository</a>

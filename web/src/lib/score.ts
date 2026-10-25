@@ -89,12 +89,12 @@ export function unweighted(values: number[]): number | null {
   return round2(values.reduce((sum, value) => sum + value, 0) / values.length);
 }
 
-/** D+k is valid_time − snapshot_time in [24k, 24k+24) hours. */
+/** D+k is valid_time − snapshot_time in [24k, 24k+24) hours. D+0 is the first 24 hours. */
 export function leadOf(validIso: string, snapshotIso: string): number {
   return Math.round((Date.parse(validIso) - Date.parse(snapshotIso)) / 3_600_000);
 }
 
 export function inLead(leadHours: number, lead: number | "all"): boolean {
-  if (lead === "all") return leadHours >= 24 && leadHours < 144;
+  if (lead === "all") return leadHours >= 0 && leadHours < 144;
   return leadHours >= 24 * lead && leadHours < 24 * lead + 24;
 }

@@ -1,10 +1,59 @@
 import { useEffect, useMemo, useState } from "react";
 import { BarChart, LineChart } from "./charts";
 import { preselect, seriesColor } from "./lib/codec";
-import { fmt, fmtDay, seriesName } from "./lib/format";
+import { fmt, fmtDay, fmtTime, seriesName } from "./lib/format";
+import { firstScoredLead, leadOpensAfterObservations, leadPairCount, leadWindow } from "./lib/leads";
 import { unweighted } from "./lib/score";
 import type { Catalog, LeadPick, VariableScore } from "./types";
 import { ExcludedList, ObsNote, ScoreTable, Segmented, SeriesToggles } from "./widgets";
+
+function LeadGap({
+  catalog,
+  variableLabel,
+  lead,
+  counts,
+}: {
+  catalog: Catalog;
+  variableLabel: string;
+  lead: number;
+  counts: { lead: number; n: number }[];
+}) {
+  const band = leadWindow(lead);
+  const lastObs = catalog.obs_days[catalog.obs_days.length - 1];
+  const earliest = catalog.snapshots[0]?.time;
+  const opened = leadOpensAfterObservations(lead, earliest, lastObs?.day);
+  return (
+    <div className="lead-empty" role="status" data-testid="lead-empty">
+      <h2>D+{lead} has no scored station-hours</h2>
+      <p>
+        {variableLabel} at D+{lead} has <strong>n = 0</strong>. There is no MAE series, so the charts and the station
+        table are not drawn. An empty axis here would look like a broken chart.
+      </p>
+      <p>
+        D+{lead} is valid time minus snapshot time in [{band.start}, {band.start + 24}) hours ({band.label}).
+        A station-hour counts only when the forecast and a ČHMÚ observation both exist. Nothing is filled from an
+        older run.
+      </p>
+      {opened.afterObservations && opened.opensAt && earliest && lastObs ? (
+        <p>
+          The earliest snapshot in this catalog is {fmtTime(earliest)}. Its D+{lead} window opens at{" "}
+          {fmtTime(opened.opensAt)}, which is after the latest observation hour we have ({lastObs.day} 23:00 UTC,{" "}
+          {lastObs.quality}). That is why this lead is empty: the observations have not reached it yet.
+        </p>
+      ) : (
+        <p>
+          This window overlaps the observations on record
+          {lastObs ? ` (latest ${lastObs.day}, ${lastObs.quality})` : ""}, but this variable still has no common
+          pairs in it. The AI and an observation have to land on the same station-hour, and the sample has to clear
+          the scoring floor, before a number appears.
+        </p>
+      )}
+      <p>
+        Pair counts for {variableLabel}: {counts.map((item) => `D+${item.lead} ${item.n.toLocaleString("en-GB")}`).join(", ")}.
+      </p>
+    </div>
+  );
+}
 
 function valueAt(series: string[], values: number[], id: string): number | null {
   const index = series.indexOf(id);
@@ -20,13 +69,16 @@ export function Overview({
   byVariable: Record<string, VariableScore> | null;
   modelVersion: string;
 }) {
-  const [variable, setVariable] = useState(catalog.primary[0] ?? catalog.variables[0]);
-  const [lead, setLead] = useState<LeadPick>("all");
+  const initialVariable = catalog.primary[0] ?? catalog.variables[0];
+  const [variable, setVariable] = useState(initialVariable);
+  const [lead, setLead] = useState<LeadPick>(() => firstScoredLead(catalog.leads, byVariable?.[initialVariable]));
   const [selected, setSelected] = useState<string[]>([]);
   const [stationSort, setStationSort] = useState<string>("name");
   const [allStationColumns, setAllStationColumns] = useState(false);
 
   const active = byVariable?.[variable] ?? null;
+  const counts = catalog.leads.map((item) => ({ lead: item, n: leadPairCount(active, item) }));
+  const leadEmpty = lead !== "all" && (counts.find((item) => item.lead === lead)?.n ?? 0) === 0;
   const leadKey = lead === "all" ? null : String(lead);
   const block = leadKey ? active?.leads[leadKey] : null;
   const overall = active?.overall;
@@ -155,18 +207,33 @@ export function Overview({
           label="Lead"
           value={lead}
           options={[
-            { value: "all" as LeadPick, label: "All", title: "Unweighted mean of D+1 to D+5" },
-            ...catalog.leads.map((item) => ({
-              value: item as LeadPick,
-              label: `D+${item}`,
-              title: item >= 4 ? "Secondary lead (rule R2)" : `${item * 24}–${item * 24 + 23} h after the snapshot`,
+            {
+              value: "all" as LeadPick,
+              label: "All",
+              title: "Unweighted mean of the D+0…D+5 scores that have pairs",
+            },
+            ...counts.map((item) => ({
+              value: item.lead as LeadPick,
+              label: `D+${item.lead}`,
+              dim: item.n <= 0,
+              title:
+                item.n > 0
+                  ? `${leadWindow(item.lead).label} · ${item.n.toLocaleString("en-GB")} common pairs${item.lead >= 4 ? " · secondary lead (rule R2)" : ""}`
+                  : `${leadWindow(item.lead).label} · 0 pairs. Open for why this lead is empty.`,
             })),
           ]}
           onChange={setLead}
         />
       </div>
+      <p className="hint lead-counts" data-testid="lead-counts">
+        Common pairs for {catalog.variable_labels[variable] ?? variable}:{" "}
+        {counts.map((item) => `D+${item.lead} ${item.n.toLocaleString("en-GB")}`).join(" · ")}. A dashed lead has
+        none yet. It stays clickable so the page can say why.
+      </p>
 
-      {!active || !ranked || ranked.series.length === 0 ? (
+      {lead !== "all" && leadEmpty ? (
+        <LeadGap catalog={catalog} variableLabel={catalog.variable_labels[variable] ?? variable} lead={lead} counts={counts} />
+      ) : !active || !ranked || ranked.series.length === 0 ? (
         <p className="banner">
           No scored pairs for {catalog.variable_labels[variable] ?? variable}
           {lead === "all" ? " yet" : ` at D+${lead} yet`}. Forecasts are stored from the first public-v2 snapshot.
@@ -178,8 +245,8 @@ export function Overview({
             {lead === "all" ? (
               <>
                 All-leads MAE, bias and RMSE are the unweighted mean of the rounded D+ scores
-                {overall && overall.leads_used.length ? ` (D+${overall.leads_used.join(", D+")})` : ""}. A series missing
-                from a lead is left out of that lead, not filled in.
+                {overall && overall.leads_used.length ? ` (D+${overall.leads_used.join(", D+")})` : ""}. Leads with no
+                pairs are left out of that mean. A series missing from a lead is left out of that lead, not filled in.
               </>
             ) : (
               <>
@@ -233,7 +300,15 @@ export function Overview({
 
           <div className="chart-grid">
             <figure>
-              <figcaption>MAE by lead</figcaption>
+              <figcaption>
+                MAE by lead
+                {counts.some((item) => item.n === 0)
+                  ? ` · no bar where n = 0 (${counts
+                      .filter((item) => item.n === 0)
+                      .map((item) => `D+${item.lead}`)
+                      .join(", ")})`
+                  : ""}
+              </figcaption>
               {leadBars && <BarChart {...leadBars} ariaLabel={`MAE by lead for ${selected.length} series`} yLabel={unit} zero />}
             </figure>
             <figure>

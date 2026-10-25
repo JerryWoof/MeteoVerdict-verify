@@ -19,7 +19,7 @@ The browser never sees a snapshot tar and there is no proxy or Worker. It loads 
    - otherwise `obs/obs-YYYYMMDD.csv` (provisional, ČHMÚ `now/`);
    - otherwise, for a day that has **no** file in `obs/` yet, the newest snapshot `obs-public`, cleaned with the same quality codes and limits as `scripts/fetch_obs.py`.
    A final day is not gap-filled from a snapshot. A provisional day stays provisional until a final file is published. The catalog lists the quality and the source of every day.
-6. Scores each `model_version` on its own (rule R11). Lead D+k is `valid_time − snapshot_time` in `[24k, 24k+24)` hours, k = 1..5 (rule R2).
+6. Scores each `model_version` on its own (rule R11). Lead D+k is `valid_time − snapshot_time` in `[24k, 24k+24)` hours, k = 0..5. D+0 is the first 24 hours after the snapshot. The preregistration’s main bands are still D+1 to D+3 (rule R2); D+4 and D+5 stay secondary. `scripts/score_stations.py` is unchanged and still scores k = 1..5. This page passes `min_lead=0` when it reduces a snapshot.
 7. Writes `catalog.json`, `scores.json` and `snaps/<id>.json.gz`.
 
 Anyone can rerun it. The catalog records the script sha256, the chain head, the asset hashes and the observation-file hashes.
@@ -30,7 +30,9 @@ Aligned with `preregistration/v1.md` where this page can be (R1–R5, R7, R11). 
 
 For each variable and lead, non-AI series are added from the fullest coverage to the sparsest **while the common station-hours stay at least half of the hours where the AI and an observation both exist, and at least 24 pairs**. MAE, bias and RMSE in that table all use that one set. A series that would shrink the set further is listed under “not in this table”, with the reason. It is not given a second MAE on a different set of hours.
 
-The **all-leads** number is the unweighted mean of those rounded per-lead scores. A series that is missing from a lead is skipped for that lead, not imputed.
+The **all-leads** number is the unweighted mean of those rounded per-lead scores, including D+0 when that lead has pairs. A lead with no pairs is left out of the mean. A series that is missing from a lead is skipped for that lead, not imputed.
+
+The whole-period screen opens on the first lead that has pairs (often D+0 or D+1). Leads with n = 0 stay on the control, drawn dashed. Choosing one replaces the charts with an explanation: that lead is `[24k, 24k+24)` hours after the snapshot, and it stays empty until observations exist in that window. The snapshot chart uses the same leads. Each selected model is a solid line. The ČHMÚ observation is a dotted line (`Obs · naměřené`) drawn on top whenever that station-hour is in the snapshot file.
 
 The ranking table is that MAE order. The AI is not moved to the top. The **charts** open with three series: MeteoVerdict AI, plus the two other series with the lowest MAE for the current selection, even when the AI itself is not among the three closest. That preselection is only which lines are drawn; the user can change it.
 
@@ -48,14 +50,14 @@ Rule R7 is shown as a label (`not enough data` / `preliminary` / 60 days recorde
 
 `scores.json` → `by_version[model_version][variable]`
 
-- `leads["1".."5"]`: `series` in MAE order, parallel `mae` / `bias` / `rmse`, `n` (common pairs), `ai_pairs`, `excluded`, `dropped_run_unavailable`, `short`
+- `leads["0".."5"]` when that lead has pairs (`"0"` is D+0). A lead with no pairs is omitted, which the page shows as n = 0. Each present lead has `series` in MAE order, parallel `mae` / `bias` / `rmse`, `n` (common pairs), `ai_pairs`, `excluded`, `dropped_run_unavailable`, `short`
 - `overall`: unweighted mean of the rounded lead scores; `leads_for[series]` lists which leads entered the mean
 - `by_day`: one MAE per snapshot UTC day, for the same series as that lead
 - `by_station`: the same series, restricted to each station’s hours
 
 `snaps/<id>.json.gz` (gzip of JSON, `enc: "delta-tenths-v1"`)
 
-- `lead0` (24), `hours`, `scale` (10), `stations`, `series`
+- `lead0` (0), `hours`, `scale` (10), `stations`, `series`. Hour 0 of the grid is the snapshot time. Each entry of `s` is one model; the rows are not copies of each other.
 - `v[variable].obs` and `v[variable].s[i]`: one row per station, joined by `;`. Each row is comma-separated integers. The first present value is `round(x * 10)`; later present values are deltas from the previous present value; an empty token is a missing hour. Trailing gaps are omitted.
 - Variables in the chart file: `temperature_2m`, `wind_speed_10m`, `precipitation`. Cloud, sunshine and part-of-day gusts are in `scores.json` only.
 - The overview uses full-precision errors. The snapshot screen recomputes MAE in the browser from these tenths (at most 0.05 off each value).
@@ -64,9 +66,9 @@ Rule R7 is shown as a label (`not enough data` / `preliminary` / 60 days recorde
 
 Target: about **100 MB/year** of published bytes, which is about **50–100 KB gzip per snapshot** at four snapshots a day.
 
-The chart file is the bulky part: three variables, 40 stations, every series, leads from 24 h out to the end of the release (about 70–90 hours), delta-encoded tenths, then gzip level 9.
+The chart file is the bulky part: three variables, 40 stations, every series, leads from 0 h out to the end of the release (the first 24 hours plus the later bands), delta-encoded tenths, then gzip level 9.
 
-Measured on the eight public-v2 releases of 24–25 Oct 2026 (21 series): **raw JSON 390–550 KB per snapshot, gzip 8–13 KB** (mean about 11 KB). Smooth fields and the many missing hours compress very well. The size budget is set for a less friendly year: if gzip only reaches about 7:1, a snapshot is about 70 KB and `4 × 365 × 70 KB ≈ 100 MB/year`. `catalog.json` and `scores.json` stay small beside that (one MAE per series per lead per day). The published files are the gzip payloads, so the `pages-data` branch tracks the transfer size rather than the raw JSON.
+Measured on the eight public-v2 releases of 24–25 Oct 2026 (21 series, hours from lead 0): **raw JSON about 470 KB per snapshot, gzip 75–112 KB** (mean about 100 KB). Each model keeps its own row, so the file no longer collapses to one repeated series. At four snapshots a day that is about `4 × 365 × 100 KB ≈ 146 MB/year`, over the 100 MB planning figure. `catalog.json` and `scores.json` stay small beside that. The published files are the gzip payloads, so the `pages-data` branch tracks the transfer size rather than the raw JSON.
 
 Those files are **not** committed to `main`. The workflow `pages-data` force-pushes a single commit to the branch `pages-data` (the same pattern as the `derived` branch: history does not accumulate). CI’s temp parquet of joined pairs is deleted at the end of the job; the reduced-snapshot cache stays in Actions cache, keyed by the tar sha256.
 

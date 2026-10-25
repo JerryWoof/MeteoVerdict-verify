@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { LineChart, type ChartSeries } from "./charts";
+import { LineChart } from "./charts";
 import { decodeStations, loadJson, preselect, seriesColor } from "./lib/codec";
 import { fmtTime, seriesName } from "./lib/format";
+import { leadWindow } from "./lib/leads";
 import { inLead, leadOf, scoreRows, type Row } from "./lib/score";
+import { buildSnapshotChart, type StationGrid } from "./lib/snapshotChart";
 import type { Catalog, CatalogSnap, LeadPick, SnapFile } from "./types";
 import { ExcludedList, ScoreTable, Segmented, SeriesToggles } from "./widgets";
 
@@ -21,17 +23,29 @@ function gridOf(file: SnapFile, variable: string): { obs: (number | null)[][]; s
   };
 }
 
-/** Latest release whose D+1 window already overlaps the observations we have. */
+/**
+ * Latest release whose lead-0 hours can still meet an observation.
+ * The newest snapshot on the last obs day often starts after the hours that file actually contains,
+ * so the chart would be forecasts only. Twelve hours of margin keeps a dotted observation on screen.
+ */
 function defaultSnap(catalog: Catalog): string[] {
   const last = catalog.obs_days[catalog.obs_days.length - 1]?.day;
   if (!last || catalog.snapshots.length === 0) {
     const newest = catalog.snapshots[catalog.snapshots.length - 1];
     return newest ? [newest.id] : [];
   }
-  const horizon = Date.parse(`${last}T23:00:00Z`) - 30 * 3_600_000;
+  const horizon = Date.parse(`${last}T23:00:00Z`) - 12 * 3_600_000;
   const usable = catalog.snapshots.filter((snap) => Date.parse(snap.time) <= horizon);
   const pick = usable[usable.length - 1] ?? catalog.snapshots[catalog.snapshots.length - 1];
   return pick ? [pick.id] : [];
+}
+
+function coversLead(file: SnapFile, lead: number): boolean {
+  if (file.hours <= 0) return false;
+  const first = file.lead0;
+  const last = file.lead0 + file.hours - 1;
+  const start = lead * 24;
+  return last >= start && first <= start + 23;
 }
 
 export function Snapshots({ catalog }: { catalog: Catalog }) {
@@ -119,54 +133,33 @@ export function Snapshots({ catalog }: { catalog: Catalog }) {
   }, [preset]);
 
   const chart = useMemo(() => {
-    const stationIndexIn = (file: SnapFile) => file.stations.indexOf(stationId);
-    const times = new Set<string>();
+    const grids: StationGrid[] = [];
     for (const { file } of loaded) {
-      if (stationIndexIn(file) < 0) continue;
-      for (let hour = 0; hour < file.hours; hour += 1) {
-        const valid = hourIso(file.snapshot_time, file.lead0, hour);
-        if (inLead(leadOf(valid, file.snapshot_time), lead)) times.add(valid);
-      }
-    }
-    const labels = [...times].sort();
-    const at = new Map(labels.map((iso, index) => [iso, index]));
-    const obsValues = labels.map(() => null as number | null);
-    const lines: ChartSeries[] = [];
-    loaded.forEach(({ file }, snapIndex) => {
       const grid = gridOf(file, variable);
-      const stationIndex = stationIndexIn(file);
-      if (!grid || stationIndex < 0) return;
-      for (let hour = 0; hour < file.hours; hour += 1) {
-        const valid = hourIso(file.snapshot_time, file.lead0, hour);
-        const index = at.get(valid);
-        if (index == null) continue;
-        const obs = grid.obs[stationIndex][hour];
-        if (obs != null) obsValues[index] = obs;
-      }
-      file.series.forEach((id, seriesIndex) => {
-        if (!selected.includes(id)) return;
-        const values = labels.map(() => null as number | null);
-        for (let hour = 0; hour < file.hours; hour += 1) {
-          const valid = hourIso(file.snapshot_time, file.lead0, hour);
-          const index = at.get(valid);
-          if (index == null) continue;
-          values[index] = grid.series[seriesIndex][stationIndex][hour];
-        }
-        const dash = ["", "7 4", "2 3", "9 3 2 3"][snapIndex % 4];
-        lines.push({
-          id: `${file.id}:${id}`,
-          name: `${seriesName(catalog.names, id)} · ${fmtTime(file.snapshot_time)}`,
-          color: seriesColor(id),
-          values,
-          dash,
-          width: id === "ai" ? 2.4 : 1.7,
-        });
+      const stationIndex = file.stations.indexOf(stationId);
+      if (!grid || stationIndex < 0) continue;
+      grids.push({
+        id: file.id,
+        snapshotTime: file.snapshot_time,
+        lead0: file.lead0,
+        hours: file.hours,
+        seriesIds: file.series,
+        obs: grid.obs[stationIndex],
+        values: grid.series.map((rows) => rows[stationIndex]),
       });
+    }
+    const built = buildSnapshotChart({
+      grids,
+      selected,
+      lead,
+      names: catalog.names,
+      color: seriesColor,
+      snapLabel: (iso) => fmtTime(iso),
     });
-    const obsLine: ChartSeries = { id: "obs", name: "Observation", color: "#1e2430", values: obsValues, width: 2.6 };
     return {
-      labels: labels.map((iso) => fmtTime(iso).replace(" UTC", "")),
-      series: labels.length ? [obsLine, ...lines] : [],
+      labels: built.times.map((iso) => fmtTime(iso).replace(" UTC", "")),
+      series: built.series,
+      obsPoints: built.obsPoints,
     };
   }, [loaded, stationId, variable, lead, selected, catalog.names]);
 
@@ -238,8 +231,13 @@ export function Snapshots({ catalog }: { catalog: Catalog }) {
               label="Lead"
               value={lead}
               options={[
-                { value: "all" as LeadPick, label: "D+1–D+5" },
-                ...catalog.leads.map((item) => ({ value: item as LeadPick, label: `D+${item}` })),
+                { value: "all" as LeadPick, label: "D+0–D+5", title: "Every hour stored in the snapshot file, from lead 0" },
+                ...catalog.leads.map((item) => ({
+                  value: item as LeadPick,
+                  label: `D+${item}`,
+                  dim: loaded.length > 0 && !loaded.some(({ file }) => coversLead(file, item)),
+                  title: `${leadWindow(item).label}. A dashed lead is outside the hours stored in the ticked releases.`,
+                })),
               ]}
               onChange={setLead}
             />
@@ -254,23 +252,50 @@ export function Snapshots({ catalog }: { catalog: Catalog }) {
             />
           </div>
           <p className="hint">
-            Chart values are rounded to 0.1 {unit}. The numbers below are computed in the browser from those rounded
-            values, on the common pairs of the releases you tick. The whole-period table uses full precision.
+            Chart values are rounded to 0.1 {unit}. Each selected model is its own solid line. The ČHMÚ observation is
+            the dotted line labelled “{`Obs · naměřené`}”, drawn on top when this station has a value in the file.
+            The numbers below are computed in the browser from those rounded values, on the common pairs of the
+            releases you tick. The whole-period table uses full precision.
             {scope === "station" ? " One station uses a floor of 6 pairs; the 40-station score uses the catalog floor." : ""}
           </p>
           {waiting && <p className="banner">Loading {picked.length} snapshot {picked.length === 1 ? "file" : "files"}…</p>}
+          {!waiting && picked.length > 0 && chart.series.length === 0 && (
+            <div className="lead-empty" role="status" data-testid="snap-lead-empty">
+              <h2>{lead === "all" ? "No hours to draw" : `D+${lead} has no hours in these releases`}</h2>
+              <p>
+                {lead === "all"
+                  ? "The ticked snapshot files have no chart hours for this station and variable."
+                  : `D+${lead} is ${leadWindow(lead).label} (valid time − snapshot time in [${lead * 24}, ${lead * 24 + 24}) hours). None of the ticked releases store an hour in that window, so there is no line to draw.`}
+                {" "}A later lead stays empty until the forecast reaches it and, for a score, until an observation exists there.
+              </p>
+            </div>
+          )}
           {station && chart.series.length > 0 && (
             <figure>
               <figcaption>
-                {station.name} · {catalog.variable_labels[variable] ?? variable} ({unit}) · observation in ink
+                {station.name} · {catalog.variable_labels[variable] ?? variable} ({unit})
+                {chart.obsPoints > 0 ? " · dotted line is the ČHMÚ observation" : " · no observation in this window"}
               </figcaption>
               <LineChart labels={chart.labels} series={chart.series} ariaLabel={`Forecast and observation at ${station.name}`} yLabel={unit} />
+              <ul className="legend">
+                {chart.series.map((line) => (
+                  <li key={line.id}>
+                    <i className={line.dash ? "dotted" : ""} style={{ borderTopColor: line.color }} />
+                    {line.name}
+                  </li>
+                ))}
+              </ul>
             </figure>
           )}
-          {!waiting && picked.length > 0 && (!scored || scored.series.length === 0) && (
+          {!waiting && chart.series.length > 0 && chart.obsPoints === 0 && (
             <p className="banner">
-              These releases have no observed hours in the selected window yet. The chart still shows the forecast where
-              it was issued.
+              No ČHMÚ observation for {station?.name ?? "this station"} in the selected window. The dotted line appears
+              when the snapshot file has a value at that station-hour. The solid lines are the forecasts that were issued.
+            </p>
+          )}
+          {!waiting && picked.length > 0 && chart.obsPoints > 0 && (!scored || scored.series.length === 0) && (
+            <p className="banner">
+              These releases have observations in the chart, but not enough common pairs to score the selected window yet.
             </p>
           )}
           {scored && scored.series.length > 0 && (
