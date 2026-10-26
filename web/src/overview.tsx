@@ -1,0 +1,366 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { BarChart } from "./charts";
+import { preselect, seriesColor } from "./lib/codec";
+import { loadSelection, saveSelection } from "./lib/selectionMemory";
+import { fmt, fmtTime, seriesName } from "./lib/format";
+import { emptyLeadTitle, scoredLeadVisual } from "./lib/coverage";
+import { firstScoredLead, leadOpensAfterObservations, leadPairCount, leadWindow } from "./lib/leads";
+import { unweighted } from "./lib/score";
+import type { Catalog, LeadPick, VariableScore } from "./types";
+import { ModelDetail } from "./modelDetail";
+import { ExcludedList, ObsNote, ScoreTable, Segmented, SeriesToggles } from "./widgets";
+
+function LeadGap({
+  catalog,
+  variableLabel,
+  lead,
+  counts,
+}: {
+  catalog: Catalog;
+  variableLabel: string;
+  lead: number;
+  counts: { lead: number; n: number }[];
+}) {
+  const band = leadWindow(lead);
+  const lastObs = catalog.obs_days[catalog.obs_days.length - 1];
+  const earliest = catalog.snapshots[0]?.time;
+  const opened = leadOpensAfterObservations(lead, earliest, lastObs?.day);
+  return (
+    <div className="lead-empty" role="status" data-testid="lead-empty">
+      <h2>D+{lead} has no scored station-hours</h2>
+      <p>
+        {variableLabel} at D+{lead} has <strong>n = 0</strong>. There is no MAE series, so the charts and the station
+        table are not drawn. An empty axis here would look like a broken chart.
+      </p>
+      <p>
+        D+{lead} is valid time minus snapshot time in [{band.start}, {band.start + 24}) hours ({band.label}).
+        A station-hour counts only when the forecast and a ČHMÚ observation both exist. Nothing is filled from an
+        older run.
+      </p>
+      {opened.afterObservations && opened.opensAt && earliest && lastObs ? (
+        <p>
+          The earliest snapshot in this catalog is {fmtTime(earliest)}. Its D+{lead} window opens at{" "}
+          {fmtTime(opened.opensAt)}, which is after the latest observation hour we have ({lastObs.day} 23:00 UTC,{" "}
+          {lastObs.quality}). That is why this lead is empty: the observations have not reached it yet.
+        </p>
+      ) : (
+        <p>
+          This window overlaps the observations on record
+          {lastObs ? ` (latest ${lastObs.day}, ${lastObs.quality})` : ""}, but this variable still has no common
+          pairs in it. The AI and an observation have to land on the same station-hour, and the sample has to clear
+          the scoring floor, before a number appears.
+        </p>
+      )}
+      <p>
+        Pair counts for {variableLabel}: {counts.map((item) => `D+${item.lead} ${item.n.toLocaleString("en-GB")}`).join(", ")}.
+      </p>
+    </div>
+  );
+}
+
+function valueAt(series: string[], values: number[], id: string): number | null {
+  const index = series.indexOf(id);
+  return index < 0 ? null : values[index];
+}
+
+export function Overview({
+  catalog,
+  byVariable,
+  modelVersion,
+}: {
+  catalog: Catalog;
+  byVariable: Record<string, VariableScore> | null;
+  modelVersion: string;
+}) {
+  const initialVariable = catalog.primary[0] ?? catalog.variables[0];
+  const [variable, setVariable] = useState(initialVariable);
+  const [lead, setLead] = useState<LeadPick>("all");
+  const [selected, setSelected] = useState<string[]>([]);
+  const custom = useRef(loadSelection("overview") != null);
+  const [stationSort, setStationSort] = useState<string>("name");
+  const [allStationColumns, setAllStationColumns] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  const active = byVariable?.[variable] ?? null;
+  const counts = catalog.leads.map((item) => {
+    const doc = active?.leads[String(item)];
+    return { lead: item, n: leadPairCount(active, item), visual: scoredLeadVisual(doc), doc };
+  });
+  const leadEmpty = lead !== "all" && counts.find((item) => item.lead === lead)?.visual === "empty";
+
+  useEffect(() => {
+    if (lead === "all") return;
+    if (scoredLeadVisual(active?.leads[String(lead)]) === "empty") setLead(firstScoredLead(catalog.leads, active));
+  }, [lead, active, catalog.leads]);
+
+  useEffect(() => {
+    setOpenId(null);
+  }, [variable, lead, modelVersion]);
+
+  function toggleModel(id: string) {
+    setOpenId((current) => (current === id ? null : id));
+  }
+  const leadKey = lead === "all" ? null : String(lead);
+  const block = leadKey ? active?.leads[leadKey] : null;
+  const overall = active?.overall;
+  const ranked = lead === "all" ? overall : block;
+  const preset = ranked && ranked.series.length ? preselect(ranked.series, ranked.mae).join("|") : "";
+
+  useEffect(() => {
+    if (!ranked || ranked.series.length === 0) {
+      if (!custom.current) setSelected([]);
+      return;
+    }
+    if (custom.current) {
+      setSelected((loadSelection("overview") ?? []).filter((id) => ranked.series.includes(id)));
+      return;
+    }
+    setSelected(preselect(ranked.series, ranked.mae));
+  }, [variable, lead, modelVersion, preset, ranked]);
+
+  function changeSeries(ids: string[]) {
+    custom.current = true;
+    saveSelection("overview", ids);
+    setSelected(ids);
+  }
+
+  const unit = catalog.units[variable] ?? "";
+  const names = catalog.names;
+
+  const leadBars = useMemo(() => {
+    if (!active) return null;
+    const labels = catalog.leads.map((item) => `D+${item}`);
+    const lines = selected.map((id) => ({
+      id,
+      name: seriesName(names, id),
+      color: seriesColor(id),
+      values: catalog.leads.map((item) => {
+        const doc = active.leads[String(item)];
+        return doc ? valueAt(doc.series, doc.mae, id) : null;
+      }),
+    }));
+    return { labels, series: lines };
+  }, [active, selected, catalog.leads, names]);
+
+  const stationRows = useMemo(() => {
+    if (!active) return [];
+    const columns = lead === "all" ? (ranked?.series ?? selected) : allStationColumns ? (ranked?.series ?? selected) : selected;
+    return catalog.stations
+      .map((station) => {
+        const maes: Record<string, number | null> = {};
+        let pairs = 0;
+        if (lead === "all") {
+          const counts: number[] = [];
+          for (const item of catalog.leads) {
+            const doc = active.by_station[String(item)];
+            if (!doc) continue;
+            const at = doc.ids.indexOf(station.id);
+            if (at < 0 || doc.n[at] <= 0) continue;
+            counts.push(doc.n[at]);
+          }
+          pairs = counts.reduce((sum, value) => sum + value, 0);
+          for (const id of columns) {
+            const samples: number[] = [];
+            for (const item of catalog.leads) {
+              const doc = active.by_station[String(item)];
+              if (!doc) continue;
+              const at = doc.ids.indexOf(station.id);
+              if (at < 0 || doc.n[at] <= 0) continue;
+              const seriesIndex = doc.series.indexOf(id);
+              const value = seriesIndex < 0 ? null : doc.mae[seriesIndex][at];
+              if (value != null) samples.push(value);
+            }
+            maes[id] = unweighted(samples);
+          }
+        } else {
+          const doc = active.by_station[String(lead)];
+          const at = doc ? doc.ids.indexOf(station.id) : -1;
+          pairs = doc && at >= 0 ? doc.n[at] : 0;
+          for (const id of columns) {
+            if (!doc || at < 0 || pairs === 0) {
+              maes[id] = null;
+              continue;
+            }
+            const seriesIndex = doc.series.indexOf(id);
+            maes[id] = seriesIndex < 0 ? null : doc.mae[seriesIndex][at];
+          }
+        }
+        return { station, pairs, maes, columns };
+      })
+      .sort((a, b) => {
+        if (stationSort === "name") return a.station.name.localeCompare(b.station.name, "cs");
+        const av = a.maes[stationSort];
+        const bv = b.maes[stationSort];
+        if (av == null && bv == null) return a.station.name.localeCompare(b.station.name, "cs");
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        return av - bv;
+      });
+  }, [active, allStationColumns, ranked, selected, catalog, lead, stationSort]);
+
+  const columnIds = stationRows[0]?.columns ?? selected;
+
+  return (
+    <section className="view">
+      <div className="controls">
+        <Segmented
+          label="Variable"
+          value={variable}
+          options={catalog.variables.map((id) => ({ value: id, label: catalog.variable_labels[id] ?? id }))}
+          onChange={setVariable}
+        />
+        <Segmented
+          label="Lead"
+          value={lead}
+          options={[
+            {
+              value: "all" as LeadPick,
+              label: "Full",
+              title: "Unweighted mean of the D+0…D+5 scores that have pairs",
+            },
+            ...counts.map((item) => ({
+              value: item.lead as LeadPick,
+              label: `D+${item.lead}`,
+              dim: item.visual === "thin",
+              disabled: item.visual === "empty",
+              title:
+                item.visual === "empty"
+                  ? emptyLeadTitle(item.lead)
+                  : item.visual === "thin" && item.doc?.obs_window
+                    ? `${leadWindow(item.lead).label} · ČHMÚ covers ${item.doc.obs_slots} of ${item.doc.obs_window} hours in this lead`
+                    : `${leadWindow(item.lead).label} · ${item.n.toLocaleString("en-GB")} common pairs${item.lead >= 4 ? " · secondary lead (rule R2)" : ""}`,
+            })),
+          ]}
+          onChange={setLead}
+        />
+      </div>
+      <p className="hint lead-counts" data-testid="lead-counts">
+        {catalog.variable_labels[variable] ?? variable}
+        {" · "}
+        {counts.map((item) => `D+${item.lead} ${item.n.toLocaleString("en-GB")}`).join(" · ")}
+      </p>
+
+      {lead !== "all" && leadEmpty ? (
+        <LeadGap catalog={catalog} variableLabel={catalog.variable_labels[variable] ?? variable} lead={lead} counts={counts} />
+      ) : !active || !ranked || ranked.series.length === 0 ? (
+        <p className="banner">
+          No scored pairs for {catalog.variable_labels[variable] ?? variable}
+          {lead === "all" ? " yet" : ` at D+${lead} yet`}. Forecasts are stored from the first public-v2 snapshot.
+          A lead can be scored only after the valid hours have observations. Withdrawn releases are not included.
+        </p>
+      ) : (
+        <>
+          <SeriesToggles ids={ranked.series} names={names} selected={selected} onChange={changeSeries} />
+
+          <figure>
+            <figcaption>MAE versus ČHMÚ ({unit})</figcaption>
+            {leadBars && (
+              <BarChart
+                {...leadBars}
+                ariaLabel={`MAE by lead for ${selected.length} series`}
+                yLabel={unit}
+                zero
+                onSeries={toggleModel}
+              />
+            )}
+          </figure>
+
+          <ScoreTable
+            names={names}
+            unit={unit}
+            series={ranked.series}
+            mae={ranked.mae}
+            bias={ranked.bias}
+            rmse={ranked.rmse}
+            openId={openId}
+            onOpen={toggleModel}
+          />
+          {openId && active && ranked.series.includes(openId) && (
+            <ModelDetail
+              catalog={catalog}
+              active={active}
+              variable={variable}
+              lead={lead}
+              modelId={openId}
+              ranked={{
+                series: ranked.series,
+                mae: ranked.mae,
+                leads_for: lead === "all" ? overall?.leads_for : undefined,
+              }}
+              onClose={() => setOpenId(null)}
+            />
+          )}
+          {block && <ExcludedList items={block.excluded} names={names} />}
+          {block && Object.keys(block.dropped_run_unavailable).length > 0 && (
+            <p className="hint">
+              Runs not available at the snapshot (rule R1), dropped and not replaced:{" "}
+              {Object.entries(block.dropped_run_unavailable)
+                .map(([id, count]) => `${seriesName(names, id)} ${count}`)
+                .join(", ")}
+              .
+            </p>
+          )}
+
+          <details className="fold">
+            <summary>By station</summary>
+            <div className="station-head">
+              <p className="hint">
+                {lead === "all"
+                  ? "Same series as the ranking, in that order."
+                  : "Same hours as the ranking. A cell is empty when that station has no pairs in this window."}
+              </p>
+              {lead !== "all" && (
+                <button type="button" className="text-btn" onClick={() => setAllStationColumns((value) => !value)}>
+                  {allStationColumns ? "Chart series" : "Every ranked series"}
+                </button>
+              )}
+            </div>
+            <div className="table-wrap">
+              <table className="stations">
+                <thead>
+                  <tr>
+                    <th scope="col">
+                      <button type="button" onClick={() => setStationSort("name")}>Station</button>
+                    </th>
+                    <th scope="col">Pairs</th>
+                    {columnIds.map((id) => (
+                      <th key={id} scope="col">
+                        <button type="button" onClick={() => setStationSort(id)}>{seriesName(names, id)}</button>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {stationRows.map((row) => (
+                    <tr key={row.station.id}>
+                      <th scope="row">
+                        {row.station.name}
+                        <span className="elev">{Math.round(row.station.elev)} m</span>
+                      </th>
+                      <td className="num">{row.pairs || "—"}</td>
+                      {columnIds.map((id) => (
+                        <td key={id} className="num">{fmt(row.maes[id])}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </>
+      )}
+      <p className="footnote">
+        Truth is the ČHMÚ observation. A pair counts only when the forecast and the observation both exist; nothing
+        is filled from an older release. D+k is valid time minus snapshot time in [24k, 24k+24) hours. Full is the
+        unweighted mean of the rounded lead scores that have pairs, on the same hours for every series.
+        {lead === "all" && overall?.leads_used.length
+          ? ` This Full value uses D+${overall.leads_used.join(", D+")}.`
+          : ""}
+        {lead !== "all" && block
+          ? ` D+${lead} has ${block.n.toLocaleString("en-GB")} common station-hours.`
+          : ""}
+      </p>
+      <ObsNote days={catalog.obs_days} />
+    </section>
+  );
+}

@@ -1,0 +1,65 @@
+name: pages
+# Builds the static site in web/ and deploys it with GitHub Pages.
+# Derived JSON is taken from the pages-data branch (produced by pages-data.yml) so main does not
+# hold the bulky files. The CNAME file in the artifact is verify.meteoverdict.cz — not the apex.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["pages-data"]
+    types: [completed]
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  build:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Copy derived JSON from pages-data
+        run: |
+          set -euo pipefail
+          mkdir -p web/public/data
+          if git ls-remote --exit-code --heads origin pages-data >/dev/null 2>&1; then
+            git fetch --depth 1 origin pages-data
+            git archive FETCH_HEAD | tar -x -C web/public/data
+          else
+            echo "pages-data is not published yet; the site will explain that"
+          fi
+          test -f web/public/CNAME
+          grep -qx 'verify.meteoverdict.cz' web/public/CNAME
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Test and build
+        working-directory: web
+        run: |
+          npm ci
+          npm test
+          npm run build
+      - name: CNAME is in the Pages root
+        run: grep -qx 'verify.meteoverdict.cz' web/dist/CNAME
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -138,10 +138,13 @@ def hourly_gust_parts(frame: pl.DataFrame, keys: list[str], min_hours: int) -> p
 # ---- snapshots -----------------------------------------------------------------------------
 
 
-def reduce_snapshot(tar_bytes: bytes, snap: datetime, stations: list[str]) -> pl.DataFrame:
-    """One snapshot's values at ``stations`` for the scored variables, leads 24-143 h: columns of
-    ``SCHEMA`` (``series`` = ``ai`` or a model id, ``run`` = start of the run behind the value; for
-    the AI the issue time)."""
+def reduce_snapshot(tar_bytes: bytes, snap: datetime, stations: list[str], min_lead: int = 24) -> pl.DataFrame:
+    """One snapshot's values at ``stations`` for the scored variables: columns of ``SCHEMA``
+    (``series`` = ``ai`` or a model id, ``run`` = start of the run behind the value; for the AI the
+    issue time).
+
+    Hours kept are ``[min_lead, 144)``. The default ``min_lead`` is 24, so this script's own scores
+    stay D+1..D+5. ``scripts/derive_pages.py`` passes ``min_lead=0`` to keep D+0 as well."""
     with tarfile.open(fileobj=io.BytesIO(tar_bytes)) as tar:
         members = {m.name: tar.extractfile(m).read() for m in tar.getmembers() if m.isfile()}
     for base in ("stations", "stations_models", "stations_parts"):  # policy public-v1: the files cut to the 40 stations
@@ -193,7 +196,7 @@ def reduce_snapshot(tar_bytes: bytes, snap: datetime, stations: list[str]) -> pl
     else:
         out = out.with_columns(pl.lit(None, pl.Datetime("us", "UTC")).alias("avail"))
     return (out.with_columns(pl.lit(snap).cast(pl.Datetime("us", "UTC")).alias("snap"))
-            .filter(lead >= 24, lead < 24 * (LEADS[-1] + 1))
+            .filter(lead >= min_lead, lead < 24 * (LEADS[-1] + 1))
             .select(list(SCHEMA)).cast(SCHEMA))  # fmt: skip
 
 

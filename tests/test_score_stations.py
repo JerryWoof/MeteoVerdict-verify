@@ -59,6 +59,32 @@ def synthetic(tmp_path: Path):
     return data, hours, obs
 
 
+def test_reduce_snapshot_default_starts_at_d1_and_min_lead_keeps_d0():
+    """score_stations keeps D+1..D+5 unless a caller asks for earlier hours."""
+    early = SNAP + timedelta(hours=3)
+    later = SNAP + timedelta(hours=30)
+    ai = pl.DataFrame({
+        "issued": [SNAP, SNAP],
+        "station_id": [ST, ST],
+        "variable": ["temperature_2m", "temperature_2m"],
+        "time": [early, later],
+        "value": [1.0, 2.0],
+    }).with_columns(
+        pl.col("value").cast(pl.Float32),
+        pl.col("time").cast(pl.Datetime("us", "UTC")),
+        pl.col("issued").cast(pl.Datetime("us", "UTC")),
+    )
+    data = tar_of({"stations.parquet": ai})
+    default = ss.reduce_snapshot(data, SNAP, [ST])
+    wider = ss.reduce_snapshot(data, SNAP, [ST], min_lead=0)
+
+    def hours(frame: pl.DataFrame) -> list[int]:
+        return sorted(int(h) for h in frame.select(((pl.col("valid_time") - pl.lit(SNAP)).dt.total_hours()).alias("h"))["h"].to_list())
+
+    assert hours(default) == [30]
+    assert hours(wider) == [3, 30]
+
+
 def test_reduce_and_score_common_pairs_and_r1(tmp_path):
     data, hours, obs_df = synthetic(tmp_path)
     frame = ss.reduce_snapshot(data, SNAP, [ST])

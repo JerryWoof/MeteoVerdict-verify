@@ -6,6 +6,10 @@ Public, timestamped log of the forecasts of [MeteoVerdict](https://meteoverdict.
 
 **Only the four daily snapshots are verified.** MeteoVerdict issues new forecasts more often than that (whenever a weather model has a new run) and the website shows the newest one. The in-between issues are *not* part of this log, are not scored here and cannot be verified from here. They are kept in our own backups only.
 
+## Verification page
+
+The static site in [`web/`](web/) is the station-score view intended for `verify.meteoverdict.cz`. The apex `meteoverdict.cz` is a different site and is not configured here. The browser loads only JSON derived in GitHub Actions from the public snapshot releases and `obs/` (the snapshot tars are read in CI and not modified). How the scores are built, the size budget, and the Pages and DNS steps are in [`web/README.md`](web/README.md).
+
 ## Licence
 
 - Forecast data and other published outputs: **CC BY-SA 4.0** (`LICENSE`). They derive from forecasts of several providers, including UK Met Office data, which requires ShareAlike. Credit the data providers (ČHMÚ, Open-Meteo, DWD, ECMWF and others, see the [licensing page](https://github.com/JerryWoof/MeteoVerdict/blob/main/docs/licensing.md)).
