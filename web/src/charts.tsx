@@ -1,8 +1,6 @@
 import { useId, useState } from "react";
+import { barLeadEmphasis, seriesEmphasis } from "./lib/chartEmphasis";
 import { fmt } from "./lib/format";
-
-const FOCUS_WIDTH = 3.5;
-const DIM = 0.25;
 
 export type ChartSeries = {
   id: string;
@@ -43,19 +41,22 @@ function ticks(min: number, max: number): number[] {
   return Array.from({ length: 5 }, (_, index) => min + step * index);
 }
 
-function emphasisPaint(id: string, hoverId: string | null, pinId: string | null, base: number): { opacity: number; width: number } {
-  const focus = hoverId ?? pinId;
-  if (!focus) return { opacity: 1, width: base };
-  if (focus === id) return { opacity: 1, width: FOCUS_WIDTH };
-  return { opacity: DIM, width: base };
-}
-
-function ChartTip({ title, series, index }: { title: string; series: ChartSeries[]; index: number }) {
+function ChartTip({
+  title,
+  series,
+  index,
+  activeId = null,
+}: {
+  title: string;
+  series: ChartSeries[];
+  index: number;
+  activeId?: string | null;
+}) {
   return (
     <div className="tooltip">
       <strong>{title}</strong>
       {series.map((line) => (
-        <span key={line.id}>
+        <span key={line.id} className={line.id === activeId ? "is-pointed" : undefined}>
           <i style={{ background: line.color }} />
           {line.name}: {fmt(line.values[index] ?? null)}
         </span>
@@ -140,7 +141,7 @@ export function LineChart({
           </g>
         ))}
         {series.map((line) => {
-          const paint = emphasisPaint(line.id, hoverId, pinId, line.width ?? 2);
+          const paint = seriesEmphasis(line.id, hoverId, pinId, line.width ?? 2);
           const d = path(line.values);
           return (
             <path
@@ -211,8 +212,9 @@ export function BarChart({
 }: Frame & { onSeries?: (id: string) => void }) {
   const [hover, setHover] = useState<number | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
-  const [pinId, setPinId] = useState<string | null>(null);
+  const [pinLead, setPinLead] = useState<number | null>(null);
   const labelId = useId();
+  const focusLead = hover ?? pinLead;
   const pad = { l: 56, r: 12, t: 22, b: 36 };
   const innerW = W - pad.l - pad.r;
   const innerH = H - pad.t - pad.b;
@@ -233,7 +235,7 @@ export function BarChart({
           setHoverId(null);
         }}
         onClick={(event) => {
-          if (event.target === event.currentTarget) setPinId(null);
+          if (event.target === event.currentTarget) setPinLead(null);
         }}
       >
         <title id={labelId}>{ariaLabel}</title>
@@ -255,7 +257,9 @@ export function BarChart({
                 const y = yAt(value);
                 const top = Math.min(y, y0);
                 const height = Math.max(1, Math.abs(y0 - y));
-                const paint = emphasisPaint(line.id, hoverId, pinId, 2);
+                const paint = barLeadEmphasis(index, hover, pinLead);
+                const pointed = yLabel ? `${line.name}: ${fmt(value)} ${yLabel}` : `${line.name}: ${fmt(value)}`;
+                const barLabel = onSeries ? `${pointed}. Open how this MAE was calculated.` : pointed;
                 return (
                   <rect
                     key={line.id}
@@ -271,7 +275,7 @@ export function BarChart({
                     className="hit"
                     tabIndex={0}
                     role={onSeries ? "button" : undefined}
-                    aria-label={onSeries ? `${line.name}. Open how this MAE was calculated.` : line.name}
+                    aria-label={barLabel}
                     onMouseEnter={() => {
                       setHover(index);
                       setHoverId(line.id);
@@ -288,12 +292,12 @@ export function BarChart({
                       onSeries
                         ? (event) => {
                             event.stopPropagation();
-                            setPinId(line.id);
+                            setPinLead(index);
                             onSeries(line.id);
                           }
                         : (event) => {
                             event.stopPropagation();
-                            setPinId(line.id);
+                            setPinLead(index);
                           }
                     }
                     onKeyDown={
@@ -301,18 +305,23 @@ export function BarChart({
                         ? (event) => {
                             if (event.key === "Enter" || event.key === " ") {
                               event.preventDefault();
-                              setPinId(line.id);
+                              setPinLead(index);
                               onSeries(line.id);
                             }
                           }
                         : undefined
                     }
                   >
-                    <title>{onSeries ? `${line.name}. Open how this MAE was calculated.` : line.name}</title>
+                    <title>{barLabel}</title>
                   </rect>
                 );
               })}
-              <text x={pad.l + index * group + group / 2} y={H - 14} className="tick" textAnchor="middle">
+              <text
+                x={pad.l + index * group + group / 2}
+                y={H - 14}
+                className={focusLead === index ? "tick on" : "tick"}
+                textAnchor="middle"
+              >
                 {label}
               </text>
             </g>
@@ -324,7 +333,9 @@ export function BarChart({
           </text>
         )}
       </svg>
-      {hover != null && <ChartTip title={labels[hover] ?? ""} series={series} index={hover} />}
+      {hover != null && (
+        <ChartTip title={labels[hover] ?? ""} series={series} index={hover} activeId={hoverId} />
+      )}
     </div>
   );
 }

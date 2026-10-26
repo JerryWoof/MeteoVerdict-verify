@@ -287,6 +287,7 @@ figcaption { font-size: 0.86rem; color: var(--muted); margin-bottom: 0.2rem; }
 .grid { stroke: var(--line); stroke-width: 1; }
 .hover-line { stroke: var(--ink); stroke-opacity: 0.35; }
 .tick { fill: var(--ink); font-size: 12px; }
+.tick.on { font-weight: 650; }
 .y-label { fill: var(--muted); font-size: 11px; }
 .tooltip {
   position: absolute;
@@ -304,6 +305,7 @@ figcaption { font-size: 0.86rem; color: var(--muted); margin-bottom: 0.2rem; }
   pointer-events: none;
 }
 .tooltip i { width: 0.55rem; height: 0.55rem; border-radius: 99px; display: inline-block; margin-right: 0.3rem; }
+.tooltip .is-pointed { font-weight: 650; color: var(--ink); }
 
 .excluded, .obs { margin: 0.6rem 0; font-size: 0.92rem; }
 .excluded ul, .obs ul { margin: 0.4rem 0 0; padding-left: 1.1rem; }
