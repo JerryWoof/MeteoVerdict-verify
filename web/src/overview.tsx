@@ -144,7 +144,7 @@ export function Overview({
 
   const stationRows = useMemo(() => {
     if (!active) return [];
-    const columns = allStationColumns ? (ranked?.series ?? selected) : selected;
+    const columns = lead === "all" ? (ranked?.series ?? selected) : allStationColumns ? (ranked?.series ?? selected) : selected;
     return catalog.stations
       .map((station) => {
         const maes: Record<string, number | null> = {};
@@ -272,7 +272,6 @@ export function Overview({
             mae={ranked.mae}
             bias={ranked.bias}
             rmse={ranked.rmse}
-            leadsFor={lead === "all" ? overall?.leads_for : undefined}
             openId={openId}
             onOpen={toggleModel}
           />
@@ -306,11 +305,15 @@ export function Overview({
             <summary>By station</summary>
             <div className="station-head">
               <p className="hint">
-                Same hours as the ranking. A cell is empty when that station has no pairs in this window.
+                {lead === "all"
+                  ? "Same series as the ranking, in that order."
+                  : "Same hours as the ranking. A cell is empty when that station has no pairs in this window."}
               </p>
-              <button type="button" className="text-btn" onClick={() => setAllStationColumns((value) => !value)}>
-                {allStationColumns ? "Chart series" : "Every ranked series"}
-              </button>
+              {lead !== "all" && (
+                <button type="button" className="text-btn" onClick={() => setAllStationColumns((value) => !value)}>
+                  {allStationColumns ? "Chart series" : "Every ranked series"}
+                </button>
+              )}
             </div>
             <div className="table-wrap">
               <table className="stations">

@@ -9,7 +9,6 @@ export function ScoreTable({
   mae,
   bias,
   rmse,
-  leadsFor,
   openId,
   onOpen,
 }: {
@@ -19,7 +18,6 @@ export function ScoreTable({
   mae: number[];
   bias: number[];
   rmse: number[];
-  leadsFor?: Record<string, number[]>;
   openId?: string | null;
   onOpen?: (id: string) => void;
 }) {
@@ -37,7 +35,6 @@ export function ScoreTable({
             <th scope="col">MAE ({unit})</th>
             <th scope="col">Bias ({unit})</th>
             <th scope="col">RMSE ({unit})</th>
-            {leadsFor && <th scope="col">Leads in the mean</th>}
           </tr>
         </thead>
         <tbody>
@@ -68,9 +65,6 @@ export function ScoreTable({
                 <td className="num">{fmt(mae[index])}</td>
                 <td className="num">{fmt(bias[index])}</td>
                 <td className="num">{fmt(rmse[index])}</td>
-                {leadsFor && (
-                  <td className="num">{(leadsFor[id] ?? []).map((lead) => `D+${lead}`).join(", ") || "—"}</td>
-                )}
               </tr>
             );
           })}

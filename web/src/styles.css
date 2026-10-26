@@ -321,6 +321,9 @@ figcaption { font-size: 0.86rem; color: var(--muted); margin-bottom: 0.2rem; }
 .y-unit { font-size: 13px; font-weight: 650; fill: var(--ink); }
 .fold { margin: 1.8rem 0 0.4rem; }
 .fold summary { cursor: pointer; font-weight: 600; }
+.info h2 { font-size: 1.35rem; margin: 1.7rem 0 0.35rem; }
+.info p { max-width: 40rem; line-height: 1.55; margin: 0.45rem 0; }
+
 .footnote {
   margin: 1.6rem 0 0.6rem;
   max-width: 40rem;

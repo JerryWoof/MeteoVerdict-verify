@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { loadJson } from "./lib/codec";
 import { fmtTime } from "./lib/format";
+import { Info } from "./info";
 import { Overview } from "./overview";
 import { Snapshots } from "./snapshots";
 import type { Catalog, Scores } from "./types";
@@ -9,7 +10,7 @@ import { EmptyState } from "./widgets";
 const BASE = import.meta.env.BASE_URL;
 
 export function App() {
-  const [tab, setTab] = useState<"scores" | "ledger">("scores");
+  const [tab, setTab] = useState<"scores" | "ledger" | "info">("scores");
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [scores, setScores] = useState<Scores | null>(null);
   const [version, setVersion] = useState<string>("");
@@ -46,7 +47,7 @@ export function App() {
         <div>
           <p className="eyebrow">ČHMÚ · 40 stations</p>
           <h1>MeteoVerdict Verify</h1>
-          <p className="lede">Mean absolute error against the observations, on the same station-hours.</p>
+          <p className="lede">Open-source, transparent comparison of public forecasts against real ČHMÚ station observations.</p>
         </div>
         <nav>
           <button type="button" aria-pressed={tab === "scores"} onClick={() => setTab("scores")}>
@@ -54,6 +55,9 @@ export function App() {
           </button>
           <button type="button" aria-pressed={tab === "ledger"} onClick={() => setTab("ledger")}>
             Ledger
+          </button>
+          <button type="button" aria-pressed={tab === "info"} onClick={() => setTab("info")}>
+            Info
           </button>
         </nav>
       </header>
@@ -89,8 +93,10 @@ export function App() {
             </section>
             {tab === "scores" ? (
               <Overview key={version} catalog={catalog} byVariable={byVariable} modelVersion={version} />
-            ) : (
+            ) : tab === "ledger" ? (
               <Snapshots catalog={catalog} />
+            ) : (
+              <Info catalog={catalog} />
             )}
           </>
         )}
