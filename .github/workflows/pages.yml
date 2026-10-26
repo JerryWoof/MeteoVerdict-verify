@@ -63,3 +63,4 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+# no-op: retrigger Pages after has_pages=true
