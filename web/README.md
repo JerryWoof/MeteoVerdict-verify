@@ -32,9 +32,11 @@ For each variable and lead, non-AI series are added from the fullest coverage to
 
 The **all-leads** number is the unweighted mean of those rounded per-lead scores, including D+0 when that lead has pairs. A lead with no pairs is left out of the mean. A series that is missing from a lead is skipped for that lead, not imputed.
 
-The whole-period screen opens on the first lead that has pairs (often D+0 or D+1). A lead with no scored station-hours is disabled, with the tooltip `D+2 has no scored station-hours`. A lead that is scored, but whose ČHMÚ hours cover under half of `24 × releases that forecast it`, stays clickable and is drawn dashed. The same 50% rule dims a release in the picker when temperature observations cover under half of that release’s D+0 window (`d0_obs_hours / 24`). The snapshot chart uses the same leads. Each selected model is a solid line. The ČHMÚ observation is a dotted line (`Obs · naměřené`) drawn only on the hours those model lines span.
+The whole-period screen opens on the first lead that has pairs (often D+0 or D+1). The combined lead is labeled **Full**. A lead with no scored station-hours is disabled, with the tooltip `D+2 has no scored station-hours`. A lead that is scored, but whose ČHMÚ hours cover under half of `24 × releases that forecast it`, stays clickable and is drawn dashed. The same 50% rule dims a release in the picker when temperature observations cover under half of that release’s D+0 window (`d0_obs_hours / 24`).
 
-The ranking table is that MAE order. The AI is not moved to the top. The **charts** open with three series: MeteoVerdict AI, plus the two other series with the lowest MAE for the current selection, even when the AI itself is not among the three closest. That preselection is only which lines are drawn; the user can change it.
+The snapshot screen shows **one release** (a radio) and **one station**. The list defaults to the latest release of each UTC day, oldest at the top, with an **All** switch for every run. A lead day on that chart is the UTC calendar day from 00:00 to the next 00:00. The x-axis is a 24-hour clock. Day boundaries are marked D+0, D+1, …. The dotted ČHMÚ line (`Obs · naměřené`) stays inside the hours where the selected models have values.
+
+The ranking table is that MAE order. Nothing is pinned to the top. The charts open on MeteoVerdict (the blend), MeteoVerdict AI, ICON-D2, ALADIN 1 km, and the lowest-MAE series that is not already one of those. Ticks are stored per page in the browser and override that default after the user changes them.
 
 Rule R7 is shown as a label (`not enough data` / `preliminary` / 60 days recorded). Sixty days still do not, by themselves, mean a model works.
 

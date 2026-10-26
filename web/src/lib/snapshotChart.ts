@@ -42,8 +42,11 @@ export function buildSnapshotChart(args: {
   names: Record<string, string>;
   color: (id: string) => string;
   snapLabel?: (iso: string) => string;
+  /** When set, the axis is these instants (the last one is the closing tick and holds no value). */
+  axis?: { times: string[]; endExclusiveMs: number };
+  plainNames?: boolean;
 }): { times: string[]; series: BuiltLine[]; obsPoints: number } {
-  const { grids, selected, lead, names, color, snapLabel = (iso) => iso } = args;
+  const { grids, selected, lead, names, color, snapLabel = (iso) => iso, axis, plainNames = false } = args;
   const selectedSet = new Set(selected);
   let minMs = Number.POSITIVE_INFINITY;
   let maxMs = Number.NEGATIVE_INFINITY;
@@ -54,7 +57,11 @@ export function buildSnapshotChart(args: {
     for (let hour = 0; hour < grid.hours; hour += 1) {
       const iso = hourIso(grid.snapshotTime, grid.lead0, hour);
       const ms = Date.parse(iso);
-      if (!inLead(leadOf(iso, grid.snapshotTime), lead)) continue;
+      if (axis) {
+        if (ms < Date.parse(axis.times[0] ?? iso) || ms >= axis.endExclusiveMs) continue;
+      } else if (!inLead(leadOf(iso, grid.snapshotTime), lead)) {
+        continue;
+      }
       inWindow.push({ grid, hour, iso, ms });
       for (const seriesIndex of picked) {
         if ((grid.values[seriesIndex]?.[hour] ?? null) == null) continue;
@@ -63,9 +70,13 @@ export function buildSnapshotChart(args: {
       }
     }
   }
-  if (!Number.isFinite(minMs)) return { times: [], series: [], obsPoints: 0 };
+  if (!Number.isFinite(minMs)) {
+    return axis ? { times: axis.times, series: [], obsPoints: 0 } : { times: [], series: [], obsPoints: 0 };
+  }
 
-  const labels = [...new Set(inWindow.filter((slot) => slot.ms >= minMs && slot.ms <= maxMs).map((slot) => slot.iso))].sort();
+  const labels = axis
+    ? axis.times
+    : [...new Set(inWindow.filter((slot) => slot.ms >= minMs && slot.ms <= maxMs).map((slot) => slot.iso))].sort();
   const at = new Map(labels.map((iso, index) => [iso, index]));
   const obsValues = labels.map(() => null as number | null);
   const series: BuiltLine[] = [];
@@ -75,11 +86,14 @@ export function buildSnapshotChart(args: {
       const iso = hourIso(grid.snapshotTime, grid.lead0, hour);
       const index = at.get(iso);
       if (index == null) continue;
+      const ms = Date.parse(iso);
+      if (ms < minMs || ms > maxMs) continue;
       const obs = grid.obs[hour] ?? null;
       if (obs != null) obsValues[index] = obs;
     }
-    grid.seriesIds.forEach((id, seriesIndex) => {
-      if (!selectedSet.has(id)) return;
+    for (const id of selected) {
+      const seriesIndex = grid.seriesIds.indexOf(id);
+      if (seriesIndex < 0) continue;
       const values = labels.map(() => null as number | null);
       let points = 0;
       const row = grid.values[seriesIndex] ?? [];
@@ -91,15 +105,16 @@ export function buildSnapshotChart(args: {
         values[index] = value;
         if (value != null) points += 1;
       }
-      if (points === 0) return;
+      if (points === 0) continue;
+      const label = seriesName(names, id);
       series.push({
         id: `${grid.id}:${id}`,
-        name: `${seriesName(names, id)} · ${snapLabel(grid.snapshotTime)}`,
+        name: plainNames ? label : `${label} · ${snapLabel(grid.snapshotTime)}`,
         color: color(id),
         values,
         width: id === "ai" ? 2.4 : 1.8,
       });
-    });
+    }
   }
 
   const obsPoints = obsValues.filter((value) => value != null).length;

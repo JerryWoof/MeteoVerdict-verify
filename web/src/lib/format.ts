@@ -29,6 +29,7 @@ export function fmtDay(isoDay: string): string {
 }
 
 export function seriesName(names: Record<string, string>, id: string): string {
+  if (id === "blend" || id === "combined") return "MeteoVerdict";
   return names[id] ?? id;
 }
 

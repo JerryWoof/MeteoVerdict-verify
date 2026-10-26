@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BarChart, LineChart } from "./charts";
 import { preselect, seriesColor } from "./lib/codec";
+import { loadSelection, saveSelection } from "./lib/selectionMemory";
 import { fmt, fmtDay, fmtTime, seriesName } from "./lib/format";
 import { emptyLeadTitle, scoredLeadVisual } from "./lib/coverage";
 import { firstScoredLead, leadOpensAfterObservations, leadPairCount, leadWindow } from "./lib/leads";
@@ -74,6 +75,7 @@ export function Overview({
   const [variable, setVariable] = useState(initialVariable);
   const [lead, setLead] = useState<LeadPick>(() => firstScoredLead(catalog.leads, byVariable?.[initialVariable]));
   const [selected, setSelected] = useState<string[]>([]);
+  const custom = useRef(loadSelection("overview") != null);
   const [stationSort, setStationSort] = useState<string>("name");
   const [allStationColumns, setAllStationColumns] = useState(false);
 
@@ -96,11 +98,21 @@ export function Overview({
 
   useEffect(() => {
     if (!ranked || ranked.series.length === 0) {
-      setSelected([]);
+      if (!custom.current) setSelected([]);
+      return;
+    }
+    if (custom.current) {
+      setSelected((loadSelection("overview") ?? []).filter((id) => ranked.series.includes(id)));
       return;
     }
     setSelected(preselect(ranked.series, ranked.mae));
-  }, [variable, lead, modelVersion, preset]);
+  }, [variable, lead, modelVersion, preset, ranked]);
+
+  function changeSeries(ids: string[]) {
+    custom.current = true;
+    saveSelection("overview", ids);
+    setSelected(ids);
+  }
 
   const unit = catalog.units[variable] ?? "";
   const names = catalog.names;
@@ -218,7 +230,7 @@ export function Overview({
           options={[
             {
               value: "all" as LeadPick,
-              label: "All",
+              label: "Full",
               title: "Unweighted mean of the D+0…D+5 scores that have pairs",
             },
             ...counts.map((item) => ({
@@ -257,7 +269,7 @@ export function Overview({
           <p className="fair">
             {lead === "all" ? (
               <>
-                All-leads MAE, bias and RMSE are the unweighted mean of the rounded D+ scores
+                Full MAE, bias and RMSE are the unweighted mean of the rounded D+ scores
                 {overall && overall.leads_used.length ? ` (D+${overall.leads_used.join(", D+")})` : ""}. Leads with no
                 pairs are left out of that mean. A series missing from a lead is left out of that lead, not filled in.
               </>
@@ -272,10 +284,10 @@ export function Overview({
             Every series in the table is scored on those same hours.
           </p>
 
-          <SeriesToggles ids={ranked.series} names={names} selected={selected} onChange={setSelected} />
+          <SeriesToggles ids={ranked.series} names={names} selected={selected} onChange={changeSeries} />
           <p className="hint">
-            The chart starts with MeteoVerdict AI and the two other series with the lowest MAE for this selection.
-            Untick or add any series. The table keeps the true MAE order, including when the AI is not among the first three.
+            The chart starts with MeteoVerdict, MeteoVerdict AI, ICON-D2, ALADIN 1 km, and the next-best series by MAE
+            that is not already in that set. Ticks on this page are remembered. The ranking table keeps the true MAE order.
           </p>
 
           <div className="matrix-wrap">
@@ -284,7 +296,7 @@ export function Overview({
               <thead>
                 <tr>
                   <th scope="col">Series</th>
-                  <th scope="col" className={lead === "all" ? "here" : ""}>All</th>
+                  <th scope="col" className={lead === "all" ? "here" : ""}>Full</th>
                   {catalog.leads.map((item) => (
                     <th key={item} scope="col" className={lead === item ? "here" : ""}>
                       D+{item}

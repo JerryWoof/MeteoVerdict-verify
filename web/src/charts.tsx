@@ -40,10 +40,23 @@ function ticks(min: number, max: number): number[] {
   return Array.from({ length: 5 }, (_, index) => min + step * index);
 }
 
-export function LineChart({ labels, series, ariaLabel, yLabel, zero = false }: Frame) {
+export function LineChart({
+  labels,
+  series,
+  ariaLabel,
+  yLabel,
+  zero = false,
+  hoverText,
+  tickAt,
+  marks,
+}: Frame & {
+  hoverText?: string[];
+  tickAt?: boolean[];
+  marks?: { index: number; text: string }[];
+}) {
   const [hover, setHover] = useState<number | null>(null);
   const labelId = useId();
-  const pad = { l: 52, r: 16, t: 16, b: 42 };
+  const pad = { l: 56, r: 18, t: 22, b: marks && marks.length > 0 ? 48 : 36 };
   const innerW = W - pad.l - pad.r;
   const innerH = H - pad.t - pad.b;
   const [min, max] = extent(series, zero);
@@ -110,21 +123,26 @@ export function LineChart({ labels, series, ariaLabel, yLabel, zero = false }: F
           <line x1={xAt(hover)} x2={xAt(hover)} y1={pad.t} y2={pad.t + innerH} className="hover-line" />
         )}
         {labels.map((label, index) =>
-          index % labelStep === 0 ? (
-            <text key={label + index} x={xAt(index)} y={H - 16} className="tick" textAnchor="middle">
+          (tickAt ? tickAt[index] : index % labelStep === 0) ? (
+            <text key={label + index} x={xAt(index)} y={H - 14} className="tick" textAnchor="middle">
               {label}
             </text>
           ) : null,
         )}
+        {marks?.map((mark) => (
+          <text key={mark.text + mark.index} x={xAt(mark.index)} y={H - 30} className="day-mark" textAnchor="middle">
+            {mark.text}
+          </text>
+        ))}
         {yLabel && (
-          <text x={16} y={18} className="y-label">
+          <text x={pad.l - 8} y={14} className="y-unit" textAnchor="end">
             {yLabel}
           </text>
         )}
       </svg>
       {hover != null && (
         <div className="tooltip">
-          <strong>{labels[hover]}</strong>
+          <strong>{hoverText?.[hover] ?? labels[hover]}</strong>
           {series.map((line) => (
             <span key={line.id}>
               <i style={{ background: line.color }} />
@@ -139,7 +157,7 @@ export function LineChart({ labels, series, ariaLabel, yLabel, zero = false }: F
 
 export function BarChart({ labels, series, ariaLabel, yLabel }: Frame) {
   const labelId = useId();
-  const pad = { l: 52, r: 12, t: 16, b: 36 };
+  const pad = { l: 56, r: 12, t: 22, b: 36 };
   const innerW = W - pad.l - pad.r;
   const innerH = H - pad.t - pad.b;
   const [min, max] = extent(series, true);
@@ -179,7 +197,7 @@ export function BarChart({ labels, series, ariaLabel, yLabel }: Frame) {
           );
         })}
         {yLabel && (
-          <text x={16} y={18} className="y-label">
+          <text x={pad.l - 8} y={14} className="y-unit" textAnchor="end">
             {yLabel}
           </text>
         )}

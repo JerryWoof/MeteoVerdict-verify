@@ -109,6 +109,40 @@ describe("buildSnapshotChart", () => {
     expect(observed.values.every((value) => value != null)).toBe(true);
   });
 
+  it("keeps a lead-day axis from midnight to midnight and does not draw obs outside the model range", () => {
+    const hours = 24;
+    const obs = Array.from({ length: hours }, () => 10);
+    const ai = Array.from({ length: hours }, (_, hour) => (hour >= 6 && hour <= 17 ? 11 : null));
+    const times = Array.from({ length: 25 }, (_, hour) => new Date(Date.parse("2026-10-25T00:00:00Z") + hour * 3_600_000).toISOString());
+    const chart = buildSnapshotChart({
+      grids: [{
+        id: "20261025T0600Z",
+        snapshotTime: "2026-10-25T06:00:00Z",
+        lead0: -6,
+        hours,
+        seriesIds: ["ai"],
+        obs,
+        values: [ai],
+      }],
+      selected: ["ai"],
+      lead: "all",
+      names: { ai: "MeteoVerdict AI" },
+      color: () => "#0f6b66",
+      plainNames: true,
+      axis: { times, endExclusiveMs: Date.parse("2026-10-26T00:00:00Z") },
+    });
+    expect(chart.times[0]).toBe("2026-10-25T00:00:00.000Z");
+    expect(chart.times[chart.times.length - 1]).toBe("2026-10-26T00:00:00.000Z");
+    const observed = chart.series[1];
+    expect(chart.series[0].name).toBe("MeteoVerdict AI");
+    expect(chart.series[0].values[0]).toBeNull();
+    expect(chart.series[0].values[12]).toBe(11);
+    expect(observed.values[0]).toBeNull();
+    expect(observed.values[12]).toBe(10);
+    expect(observed.values[23]).toBeNull();
+    expect(chart.obsPoints).toBe(12);
+  });
+
   it("omits the observation line when that station has no obs in the window", () => {
     const source = grid();
     source.obs = source.obs.map(() => null);

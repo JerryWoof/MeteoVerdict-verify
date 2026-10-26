@@ -32,18 +32,20 @@ export function decodeStations(block: string, stations: number, hours: number, s
   return rows.map((row) => decodeRow(row, hours, scale));
 }
 
+/** Display order of the default chart lines. The fifth slot is filled from the MAE ranking. */
+export const DEFAULT_SERIES = ["blend", "ai", "dwd_icon_d2", "chmi_aladin_cz_1km"] as const;
+
 export function preselect(series: string[], mae: number[]): string[] {
+  const present = new Set(series);
+  const out: string[] = DEFAULT_SERIES.filter((id) => present.has(id));
   const ranked = series
     .map((k, index) => ({ k, mae: mae[index] }))
-    .filter((row) => Number.isFinite(row.mae));
-  const others = ranked
-    .filter((row) => row.k !== "ai")
+    .filter((row) => Number.isFinite(row.mae))
     .sort((a, b) => a.mae - b.mae || a.k.localeCompare(b.k));
-  const out: string[] = [];
-  if (ranked.some((row) => row.k === "ai")) out.push("ai");
-  for (const other of others) {
-    if (out.length >= 3) break;
-    out.push(other.k);
+  for (const row of ranked) {
+    if (out.includes(row.k)) continue;
+    out.push(row.k);
+    break;
   }
   return out;
 }

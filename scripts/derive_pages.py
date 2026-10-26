@@ -81,7 +81,7 @@ VAR_LABELS = {
     "sunshine_duration": "Sunshine",
     ss.PART_GUST: "Gusts (part of day)",
 }
-NAMES = {**ss.NAMES, "blend": "Blend", "combined": "Blend"}
+NAMES = {**ss.NAMES, "blend": "MeteoVerdict", "combined": "MeteoVerdict"}
 OBS_SCHEMA = {
     "station_id": pl.String,
     "valid_time": pl.Datetime("us", "UTC"),

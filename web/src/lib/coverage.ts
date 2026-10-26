@@ -12,7 +12,26 @@ export function emptyLeadTitle(lead: number): string {
   return `D+${lead} has no scored station-hours`;
 }
 
-/** One snapshot file: which leads contain a model value, and how many hours have an observation. */
+/**
+ * Calendar days after the snapshot's UTC date. D+0 is that date from 00:00 to the next 00:00,
+ * which is the window the snapshot chart draws for a lead.
+ */
+export function calendarDayFacts(snapshotIso: string, lead0: number, hourHasObs: boolean[], hourHasModel: boolean[]): LeadFact[] {
+  const snap = new Date(snapshotIso);
+  const origin = Date.UTC(snap.getUTCFullYear(), snap.getUTCMonth(), snap.getUTCDate());
+  const facts: LeadFact[] = Array.from({ length: LEAD_COUNT }, () => ({ hasSeries: false, obsHours: 0 }));
+  const snapMs = Date.parse(snapshotIso);
+  const n = Math.max(hourHasObs.length, hourHasModel.length);
+  for (let hour = 0; hour < n; hour += 1) {
+    const day = Math.floor((snapMs + (lead0 + hour) * 3_600_000 - origin) / 86_400_000);
+    if (day < 0 || day >= LEAD_COUNT) continue;
+    if (hourHasModel[hour]) facts[day].hasSeries = true;
+    if (hourHasObs[hour]) facts[day].obsHours += 1;
+  }
+  return facts;
+}
+
+/** One snapshot file: which hour-leads contain a model value, and how many hours have an observation. */
 export function factsFromHours(lead0: number, hourHasObs: boolean[], hourHasModel: boolean[]): LeadFact[] {
   const facts: LeadFact[] = Array.from({ length: LEAD_COUNT }, () => ({ hasSeries: false, obsHours: 0 }));
   const n = Math.max(hourHasObs.length, hourHasModel.length);

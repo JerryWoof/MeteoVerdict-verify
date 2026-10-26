@@ -258,7 +258,19 @@ figcaption { font-size: 0.86rem; color: var(--muted); margin-bottom: 0.2rem; }
 .obs .final { color: var(--teal); }
 .obs .provisional { color: #8a5a12; }
 
-.snap-layout { display: grid; grid-template-columns: 240px 1fr; gap: 1rem; }
+.y-unit { font-size: 12px; font-weight: 650; }
+.day-mark { font-size: 11px; font-weight: 650; fill: var(--teal); }
+.forecast-for { margin: 0.15rem 0 0.2rem; font-weight: 650; }
+.picker-filter { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.35rem 0 0.2rem; }
+.picker-filter button {
+  border: 1px solid var(--line);
+  background: transparent;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.78rem;
+}
+.picker-filter button.active { background: var(--teal); color: white; border-color: var(--teal); }
+.snap-layout { display: grid; grid-template-columns: 280px 1fr; gap: 1rem; }
 .picker {
   border-right: 1px solid var(--line);
   padding-right: 0.8rem;

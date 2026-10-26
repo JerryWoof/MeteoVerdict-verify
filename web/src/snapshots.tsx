@@ -1,15 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { LineChart } from "./charts";
+import { forecastDates, fullAxis, leadDayAxis, showClockTick, utcMidnight, type AxisTick } from "./lib/chartAxis";
 import { decodeStations, loadJson, preselect, seriesColor } from "./lib/codec";
+import { calendarDayFacts, emptyLeadTitle, leadState, releaseCoverageThin, type LeadFact } from "./lib/coverage";
 import { fmtTime, seriesName } from "./lib/format";
-import { combineLeadFacts, emptyLeadTitle, factsFromHours, leadState, releaseCoverageThin, type LeadFact } from "./lib/coverage";
-import { leadWindow } from "./lib/leads";
-import { inLead, leadOf, scoreRows, type Row } from "./lib/score";
+import { scoreRows, type Row } from "./lib/score";
+import { loadSelection, saveSelection } from "./lib/selectionMemory";
 import { buildSnapshotChart, type StationGrid } from "./lib/snapshotChart";
 import type { Catalog, CatalogSnap, LeadPick, SnapFile } from "./types";
 import { ExcludedList, ScoreTable, Segmented, SeriesToggles } from "./widgets";
 
 const BASE = import.meta.env.BASE_URL;
+const STATION_FLOOR = 6;
 
 function hourIso(snapshotIso: string, lead0: number, hour: number): string {
   return new Date(Date.parse(snapshotIso) + (lead0 + hour) * 3_600_000).toISOString();
@@ -24,26 +26,31 @@ function gridOf(file: SnapFile, variable: string): { obs: (number | null)[][]; s
   };
 }
 
-/**
- * Latest release whose lead-0 hours can still meet an observation.
- * The newest snapshot on the last obs day often starts after the hours that file actually contains,
- * so the chart would be forecasts only. Twelve hours of margin keeps a dotted observation on screen.
- */
-function defaultSnap(catalog: Catalog): string[] {
-  const last = catalog.obs_days[catalog.obs_days.length - 1]?.day;
-  if (!last || catalog.snapshots.length === 0) {
-    const newest = catalog.snapshots[catalog.snapshots.length - 1];
-    return newest ? [newest.id] : [];
+function latestPerDay(snaps: CatalogSnap[]): CatalogSnap[] {
+  const byDay = new Map<string, CatalogSnap>();
+  for (const snap of snaps) {
+    const day = snap.time.slice(0, 10);
+    const prev = byDay.get(day);
+    if (!prev || snap.time > prev.time) byDay.set(day, snap);
   }
-  const horizon = Date.parse(`${last}T23:00:00Z`) - 12 * 3_600_000;
-  const usable = catalog.snapshots.filter((snap) => Date.parse(snap.time) <= horizon);
-  const pick = usable[usable.length - 1] ?? catalog.snapshots[catalog.snapshots.length - 1];
-  return pick ? [pick.id] : [];
+  return [...byDay.values()].sort((a, b) => a.time.localeCompare(b.time));
 }
 
-function fileLeadFacts(file: SnapFile, variable: string): LeadFact[] {
+function pickDefault(snaps: CatalogSnap[]): string {
+  return snaps[snaps.length - 1]?.id ?? "";
+}
+
+function inCalendarDay(validIso: string, snapshotIso: string, lead: LeadPick): boolean {
+  const ms = Date.parse(validIso);
+  const origin = utcMidnight(snapshotIso);
+  if (lead === "all") return ms >= origin;
+  const start = origin + lead * 86_400_000;
+  return ms >= start && ms < start + 86_400_000;
+}
+
+function fileCalendarFacts(file: SnapFile, variable: string): LeadFact[] {
   const grid = gridOf(file, variable);
-  if (!grid) return factsFromHours(file.lead0, [], []);
+  if (!grid) return calendarDayFacts(file.snapshot_time, file.lead0, [], []);
   const hourHasObs = Array.from({ length: file.hours }, () => false);
   const hourHasModel = Array.from({ length: file.hours }, () => false);
   for (let station = 0; station < file.stations.length; station += 1) {
@@ -58,11 +65,12 @@ function fileLeadFacts(file: SnapFile, variable: string): LeadFact[] {
       }
     }
   }
-  return factsFromHours(file.lead0, hourHasObs, hourHasModel);
+  return calendarDayFacts(file.snapshot_time, file.lead0, hourHasObs, hourHasModel);
 }
 
 export function Snapshots({ catalog }: { catalog: Catalog }) {
-  const [picked, setPicked] = useState<string[]>(() => defaultSnap(catalog));
+  const [listMode, setListMode] = useState<"latest" | "all">("latest");
+  const [releaseId, setReleaseId] = useState(() => pickDefault(latestPerDay(catalog.snapshots)));
   const [files, setFiles] = useState<Record<string, SnapFile>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [stationId, setStationId] = useState(() => {
@@ -72,131 +80,133 @@ export function Snapshots({ catalog }: { catalog: Catalog }) {
   });
   const [variable, setVariable] = useState(catalog.chart_variables[0] ?? "temperature_2m");
   const [lead, setLead] = useState<LeadPick>("all");
-  const [scope, setScope] = useState<"network" | "station">("network");
   const [selected, setSelected] = useState<string[]>([]);
+  const custom = useRef(loadSelection("snapshots") != null);
+
+  const visible = useMemo(() => {
+    const chronological = [...catalog.snapshots].sort((a, b) => a.time.localeCompare(b.time));
+    return listMode === "latest" ? latestPerDay(chronological) : chronological;
+  }, [catalog.snapshots, listMode]);
 
   useEffect(() => {
+    if (visible.some((snap) => snap.id === releaseId)) return;
+    setReleaseId(pickDefault(visible));
+  }, [visible, releaseId]);
+
+  useEffect(() => {
+    if (!releaseId || files[releaseId] || errors[releaseId]) return;
     let cancel = false;
-    for (const id of picked) {
-      if (files[id] || errors[id]) continue;
-      const meta = catalog.snapshots.find((snap) => snap.id === id);
-      if (!meta) continue;
-      loadJson(`${BASE}data/${meta.file}`)
-        .then((doc) => {
-          if (!cancel) setFiles((prev) => ({ ...prev, [id]: doc as SnapFile }));
-        })
-        .catch((error: unknown) => {
-          if (!cancel) setErrors((prev) => ({ ...prev, [id]: error instanceof Error ? error.message : String(error) }));
-        });
-    }
+    const meta = catalog.snapshots.find((snap) => snap.id === releaseId);
+    if (!meta) return;
+    loadJson(`${BASE}data/${meta.file}`)
+      .then((doc) => {
+        if (!cancel) setFiles((prev) => ({ ...prev, [releaseId]: doc as SnapFile }));
+      })
+      .catch((error: unknown) => {
+        if (!cancel) setErrors((prev) => ({ ...prev, [releaseId]: error instanceof Error ? error.message : String(error) }));
+      });
     return () => {
       cancel = true;
     };
-    // files/errors are read only to skip ids already stored; listing them would cancel in-flight loads.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [picked, catalog.snapshots]);
+  }, [releaseId, files, errors, catalog.snapshots]);
 
-  const loaded = useMemo(
-    () =>
-      picked.flatMap((id) => {
-        const meta = catalog.snapshots.find((snap) => snap.id === id);
-        const file = files[id];
-        return meta && file ? [{ meta, file }] : [];
-      }),
-    [picked, files, catalog.snapshots],
-  );
+  const file = releaseId ? files[releaseId] : undefined;
 
   const scored = useMemo(() => {
+    if (!file) return null;
+    const grid = gridOf(file, variable);
+    if (!grid) return null;
     const rows: Row[] = [];
-    for (const { file } of loaded) {
-      const grid = gridOf(file, variable);
-      if (!grid) continue;
-      file.stations.forEach((sid, stationIndex) => {
-        if (scope === "station" && sid !== stationId) return;
-        for (let hour = 0; hour < file.hours; hour += 1) {
-          const valid = hourIso(file.snapshot_time, file.lead0, hour);
-          const leadHours = leadOf(valid, file.snapshot_time);
-          if (!inLead(leadHours, lead)) continue;
-          const obs = grid.obs[stationIndex][hour];
-          if (obs == null) continue;
-          const values: Record<string, number | null> = {};
-          file.series.forEach((name, seriesIndex) => {
-            values[name] = grid.series[seriesIndex][stationIndex][hour];
-          });
-          rows.push({ obs, values });
-        }
-      });
-    }
-    const minPairs = scope === "station" ? 6 : catalog.thresholds.min_pairs;
-    return scoreRows(rows, minPairs, catalog.thresholds.keep_fraction);
-  }, [loaded, variable, lead, scope, stationId, catalog.thresholds]);
+    file.stations.forEach((sid, stationIndex) => {
+      if (sid !== stationId) return;
+      for (let hour = 0; hour < file.hours; hour += 1) {
+        const valid = hourIso(file.snapshot_time, file.lead0, hour);
+        if (!inCalendarDay(valid, file.snapshot_time, lead)) continue;
+        const obs = grid.obs[stationIndex][hour];
+        if (obs == null) continue;
+        const values: Record<string, number | null> = {};
+        file.series.forEach((name, seriesIndex) => {
+          values[name] = grid.series[seriesIndex][stationIndex][hour];
+        });
+        rows.push({ obs, values });
+      }
+    });
+    return scoreRows(rows, STATION_FLOOR, catalog.thresholds.keep_fraction);
+  }, [file, variable, lead, stationId, catalog.thresholds.keep_fraction]);
 
-  const fileSeries = loaded.map((item) => `${item.file.id}:${item.file.series.join(",")}`).join("|");
   const preset = scored
-    ? `score|${scored.series.join()}|${scored.mae.join()}|${picked.join()}|${variable}|${lead}|${scope}|${stationId}`
-    : `forecast|${fileSeries}|${variable}|${lead}|${stationId}`;
+    ? `score|${scored.series.join()}|${scored.mae.join()}|${releaseId}|${variable}|${lead}|${stationId}`
+    : `forecast|${file?.series.join(",") ?? ""}|${releaseId}|${variable}|${lead}|${stationId}`;
   useEffect(() => {
-    if (scored && scored.series.length > 0) {
-      setSelected(preselect(scored.series, scored.mae));
+    const available = scored && scored.series.length > 0 ? scored.series : (file?.series ?? []);
+    if (available.length === 0) {
+      if (!custom.current) setSelected([]);
       return;
     }
-    const present = [...new Set(loaded.flatMap((item) => item.file.series))];
-    const others = present.filter((id) => id !== "ai").slice(0, 2);
-    setSelected(present.includes("ai") ? ["ai", ...others] : others);
+    if (custom.current) {
+      setSelected((loadSelection("snapshots") ?? []).filter((id) => available.includes(id)));
+      return;
+    }
+    setSelected(preselect(available, scored && scored.series.length > 0 ? scored.mae : []));
   }, [preset]);
 
-  const leadFacts = useMemo(
-    () => loaded.map(({ file }) => fileLeadFacts(file, variable)),
-    [loaded, variable],
-  );
+  const leadFacts = useMemo(() => (file ? fileCalendarFacts(file, variable) : []), [file, variable]);
 
   useEffect(() => {
-    if (lead === "all" || loaded.length === 0) return;
-    if (lead < 0 || lead >= leadFacts[0]?.length) return;
-    const combined = combineLeadFacts(leadFacts.map((facts) => facts[lead] ?? { hasSeries: false, obsHours: 0 }));
-    if (leadState(combined.hasSeries, combined.obsHours, combined.windowHours) === "empty") setLead("all");
-  }, [lead, loaded.length, leadFacts]);
+    if (lead === "all" || !file) return;
+    const fact = leadFacts[lead];
+    if (!fact) return;
+    const state = leadState(fact.hasSeries, fact.obsHours, fact.hasSeries ? 24 : 0);
+    if (state === "empty") setLead("all");
+  }, [lead, file, leadFacts]);
 
   const chart = useMemo(() => {
-    const grids: StationGrid[] = [];
-    for (const { file } of loaded) {
-      const grid = gridOf(file, variable);
-      const stationIndex = file.stations.indexOf(stationId);
-      if (!grid || stationIndex < 0) continue;
-      grids.push({
-        id: file.id,
-        snapshotTime: file.snapshot_time,
-        lead0: file.lead0,
-        hours: file.hours,
-        seriesIds: file.series,
-        obs: grid.obs[stationIndex],
-        values: grid.series.map((rows) => rows[stationIndex]),
-      });
-    }
+    if (!file) return null;
+    const grid = gridOf(file, variable);
+    const stationIndex = file.stations.indexOf(stationId);
+    if (!grid || stationIndex < 0 || file.hours <= 0) return null;
+    const stationGrid: StationGrid = {
+      id: file.id,
+      snapshotTime: file.snapshot_time,
+      lead0: file.lead0,
+      hours: file.hours,
+      seriesIds: file.series,
+      obs: grid.obs[stationIndex],
+      values: grid.series.map((rows) => rows[stationIndex]),
+    };
+    const lastIso = hourIso(file.snapshot_time, file.lead0, file.hours - 1);
+    const ticks: AxisTick[] = lead === "all" ? fullAxis(file.snapshot_time, lastIso) : leadDayAxis(file.snapshot_time, lead);
+    const spanHours = Math.max(ticks.length - 1, 1);
     const built = buildSnapshotChart({
-      grids,
+      grids: [stationGrid],
       selected,
-      lead,
+      lead: "all",
       names: catalog.names,
       color: seriesColor,
-      snapLabel: (iso) => fmtTime(iso),
+      plainNames: true,
+      axis: { times: ticks.map((tick) => tick.iso), endExclusiveMs: ticks[ticks.length - 1]?.ms ?? 0 },
     });
     return {
-      labels: built.times.map((iso) => fmtTime(iso).replace(" UTC", "")),
+      labels: ticks.map((tick) => tick.clock),
+      hover: ticks.map((tick) => (tick.terminal ? tick.clock : `D+${tick.lead} · ${tick.clock}`)),
+      tickAt: ticks.map((tick) => showClockTick(tick, spanHours)),
+      marks: ticks.flatMap((tick, index) => (tick.dayStart ? [{ index, text: `D+${tick.lead}` }] : [])),
+      dates: forecastDates(ticks),
       series: built.series,
       obsPoints: built.obsPoints,
     };
-  }, [loaded, stationId, variable, lead, selected, catalog.names]);
+  }, [file, stationId, variable, lead, selected, catalog.names]);
 
   const station = catalog.stations.find((item) => item.id === stationId);
   const unit = catalog.units[variable] ?? "";
-  const waiting = picked.some((id) => !files[id] && !errors[id]);
+  const waiting = Boolean(releaseId && !file && !errors[releaseId]);
+  const toggleIds = scored && scored.series.length > 0 ? scored.series : (file?.series ?? []);
 
-  function toggle(id: string) {
-    setPicked((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
+  function changeSeries(ids: string[]) {
+    custom.current = true;
+    saveSelection("snapshots", ids);
+    setSelected(ids);
   }
-
-  const newestFirst = [...catalog.snapshots].reverse();
 
   return (
     <section className="view">
@@ -204,24 +214,19 @@ export function Snapshots({ catalog }: { catalog: Catalog }) {
         <div className="picker">
           <div className="picker-head">
             <h2>Releases</h2>
-            <button
-              type="button"
-              className="text-btn"
-              onClick={() => {
-                const latest = catalog.snapshots[catalog.snapshots.length - 1];
-                setPicked(latest ? [latest.id] : []);
-              }}
-            >
-              Latest only
+          </div>
+          <div className="picker-filter" role="radiogroup" aria-label="Release list">
+            <button type="button" className={listMode === "all" ? "active" : ""} onClick={() => setListMode("all")}>
+              All
+            </button>
+            <button type="button" className={listMode === "latest" ? "active" : ""} onClick={() => setListMode("latest")}>
+              Latest from each day
             </button>
           </div>
           <ul>
-            {newestFirst.map((snap: CatalogSnap) => {
+            {visible.map((snap: CatalogSnap) => {
               const thin = releaseCoverageThin(snap.d0_obs_hours, snap.d0_window_hours ?? 24);
-              const obsNote =
-                snap.d0_obs_hours == null
-                  ? ""
-                  : ` · D+0 obs ${snap.d0_obs_hours}/${snap.d0_window_hours ?? 24}`;
+              const obsNote = snap.d0_obs_hours == null ? "" : ` · D+0 obs ${snap.d0_obs_hours}/${snap.d0_window_hours ?? 24}`;
               return (
                 <li key={snap.id} className={thin ? "thin" : undefined}>
                   <label
@@ -231,7 +236,12 @@ export function Snapshots({ catalog }: { catalog: Catalog }) {
                         : undefined
                     }
                   >
-                    <input type="checkbox" checked={picked.includes(snap.id)} onChange={() => toggle(snap.id)} />
+                    <input
+                      type="radio"
+                      name="release"
+                      checked={releaseId === snap.id}
+                      onChange={() => setReleaseId(snap.id)}
+                    />
                     <span>
                       <strong>{fmtTime(snap.time)}</strong>
                       <small>
@@ -270,13 +280,11 @@ export function Snapshots({ catalog }: { catalog: Catalog }) {
               label="Lead"
               value={lead}
               options={[
-                { value: "all" as LeadPick, label: "D+0–D+5", title: "Every hour stored in the snapshot file, from lead 0" },
+                { value: "all" as LeadPick, label: "Full", title: "Every day stored in this release, from 00:00 on the snapshot date" },
                 ...catalog.leads.map((item) => {
-                  const combined =
-                    loaded.length === 0
-                      ? null
-                      : combineLeadFacts(leadFacts.map((facts) => facts[item] ?? { hasSeries: false, obsHours: 0 }));
-                  const state = combined ? leadState(combined.hasSeries, combined.obsHours, combined.windowHours) : "ok";
+                  const fact = file ? (leadFacts[item] ?? { hasSeries: false, obsHours: 0 }) : null;
+                  const state = fact ? leadState(fact.hasSeries, fact.obsHours, fact.hasSeries ? 24 : 0) : "ok";
+                  const stamp = file ? forecastDates(leadDayAxis(file.snapshot_time, item))[0] : "";
                   return {
                     value: item as LeadPick,
                     label: `D+${item}`,
@@ -285,74 +293,48 @@ export function Snapshots({ catalog }: { catalog: Catalog }) {
                     title:
                       state === "empty"
                         ? emptyLeadTitle(item)
-                        : combined
-                          ? `${leadWindow(item).label} · ČHMÚ covers ${combined.obsHours} of ${combined.windowHours} hours`
-                          : leadWindow(item).label,
+                        : fact
+                          ? `${stamp} 00:00–00:00 · ČHMÚ covers ${fact.obsHours} of 24 hours`
+                          : `D+${item}`,
                   };
                 }),
               ]}
               onChange={setLead}
             />
-            <Segmented
-              label="MAE sample"
-              value={scope}
-              options={[
-                {
-                  value: "network",
-                  label: "All 40 stations",
-                  title: "The table scores every station. The chart stays the station selected above.",
-                },
-                {
-                  value: "station",
-                  label: "This station",
-                  title: "The table scores only the station selected above. The chart is that same station.",
-                },
-              ]}
-              onChange={setScope}
-            />
           </div>
-          <p className="hint" data-testid="mae-scope">
-            {scope === "network" ? (
-              <>
-                MAE sample: all {catalog.stations.length} stations
-                {scored ? `, ${scored.n.toLocaleString("en-GB")} common pairs` : ""}. The chart is only{" "}
-                {station?.name ?? "the selected station"}.
-              </>
-            ) : (
-              <>
-                MAE sample: {station?.name ?? "this station"} only
-                {scored ? `, ${scored.n.toLocaleString("en-GB")} common pairs` : ""}. Same station as the chart.
-              </>
-            )}
-          </p>
           <p className="hint">
-            Chart values are rounded to 0.1 {unit}. Each selected model is its own solid line. The dotted line is the
-            ČHMÚ observation for this station, drawn only on the same hours as those model lines. A dimmed release or
-            lead has observations for under half of its 24-hour window. A lead with no model series is disabled.
-            The numbers below use the MAE sample chosen above, on the common pairs of the releases you tick.
-            {scope === "station" ? " One station uses a floor of 6 pairs; all 40 stations use the catalog floor." : ""}
+            One station and one release. Each selected model is a solid line. The dotted line is the ČHMÚ observation,
+            drawn only where those model lines have values. A dimmed release or lead has observations for under half of
+            its 24-hour day. A lead with no model series is disabled. The table is this station, on the common pairs in
+            the window.
           </p>
-          {waiting && <p className="banner">Loading {picked.length} snapshot {picked.length === 1 ? "file" : "files"}…</p>}
-          {!waiting && picked.length > 0 && chart.series.length === 0 && (
+          {waiting && <p className="banner">Loading the release…</p>}
+          {!waiting && releaseId && (!chart || chart.series.length === 0) && (
             <div className="lead-empty" role="status" data-testid="snap-lead-empty">
-              <h2>{lead === "all" ? "No hours to draw" : `D+${lead} has no hours in these releases`}</h2>
+              <h2>{lead === "all" ? "No hours to draw" : `D+${lead} has no hours in this release`}</h2>
               <p>
                 {lead === "all"
-                  ? "The ticked snapshot files have no chart hours for this station and variable."
-                  : `D+${lead} is ${leadWindow(lead).label} (valid time − snapshot time in [${lead * 24}, ${lead * 24 + 24}) hours). None of the ticked releases store an hour in that window, so there is no line to draw.`}
-                {" "}A later lead stays empty until the forecast reaches it and, for a score, until an observation exists there.
+                  ? "This release has no chart hours for this station and variable."
+                  : `D+${lead} is the UTC day ${file ? forecastDates(leadDayAxis(file.snapshot_time, lead))[0] : ""}, 00:00 to the next 00:00. This release has no model value on that day.`}
               </p>
             </div>
           )}
-          {station && chart.series.length > 0 && (
+          {station && chart && chart.series.length > 0 && (
             <figure>
               <figcaption>
-                {station.name} · {catalog.variable_labels[variable] ?? variable} ({unit})
-                {chart.obsPoints > 0
-                  ? ` · ${chart.obsPoints} observation hours`
-                  : " · no observation in this window"}
+                {station.name} · {catalog.variable_labels[variable] ?? variable}
+                {chart.obsPoints > 0 ? ` · ${chart.obsPoints} observation hours` : " · no observation in this window"}
               </figcaption>
-              <LineChart labels={chart.labels} series={chart.series} ariaLabel={`Forecast and observation at ${station.name}`} yLabel={unit} />
+              <p className="forecast-for">Forecasts for: {chart.dates.join(", ")}</p>
+              <LineChart
+                labels={chart.labels}
+                hoverText={chart.hover}
+                tickAt={chart.tickAt}
+                marks={chart.marks}
+                series={chart.series}
+                ariaLabel={`Forecast and observation at ${station.name}`}
+                yLabel={unit}
+              />
               <ul className="legend">
                 {chart.series.map((line) => (
                   <li key={line.id}>
@@ -363,25 +345,19 @@ export function Snapshots({ catalog }: { catalog: Catalog }) {
               </ul>
             </figure>
           )}
-          {!waiting && chart.series.length > 0 && chart.obsPoints === 0 && (
+          {!waiting && chart && chart.series.length > 0 && chart.obsPoints === 0 && (
             <p className="banner">
-              No ČHMÚ observation for {station?.name ?? "this station"} in the selected window. The dotted line appears
-              when the snapshot file has a value at that station-hour. The solid lines are the forecasts that were issued.
+              No ČHMÚ observation for {station?.name ?? "this station"} inside the model hours of this window. The dotted
+              line appears where the release has a measurement on the same hours as the selected models.
             </p>
           )}
-          {!waiting && picked.length > 0 && chart.obsPoints > 0 && (!scored || scored.series.length === 0) && (
-            <p className="banner">
-              These releases have observations in the chart, but not enough common pairs to score the selected window yet.
-            </p>
-          )}
+          {toggleIds.length > 0 && <SeriesToggles ids={toggleIds} names={catalog.names} selected={selected} onChange={changeSeries} />}
           {scored && scored.series.length > 0 && (
             <>
-              <SeriesToggles ids={scored.series} names={catalog.names} selected={selected} onChange={setSelected} />
               <p className="fair">
-                {scope === "network" ? `All ${catalog.stations.length} stations` : station?.name ?? "This station"}:{" "}
-                {scored.n.toLocaleString("en-GB")} common pairs
+                {station?.name ?? "This station"}: {scored.n.toLocaleString("en-GB")} common pairs
                 {scored.aiPairs !== scored.n ? ` (${scored.aiPairs.toLocaleString("en-GB")} with an AI value and an observation)` : ""}.
-                {scored.short ? " Short sample." : ""} Same hours for every series in the table.
+                {scored.short ? " Short sample." : ""} Same hours for every series in the table. One station uses a floor of {STATION_FLOOR} pairs.
               </p>
               <ScoreTable names={catalog.names} unit={unit} series={scored.series} mae={scored.mae} bias={scored.bias} rmse={scored.rmse} />
               <ExcludedList

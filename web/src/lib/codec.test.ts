@@ -10,10 +10,16 @@ describe("delta-tenths", () => {
 });
 
 describe("preselect", () => {
-  it("keeps the AI on the chart plus the two closest other series", () => {
-    const series = ["model_a", "ai", "model_b", "model_c"];
-    const mae = [0.5, 2, 0.8, 0.7];
-    expect(preselect(series, mae)).toEqual(["ai", "model_a", "model_c"]);
+  it("starts with MeteoVerdict, the AI, ICON-D2 and ALADIN, then the best series not already included", () => {
+    const series = ["model_b", "ai", "blend", "dwd_icon_d2", "chmi_aladin_cz_1km", "model_a"];
+    const mae = [0.3, 0.9, 0.5, 0.8, 0.7, 0.4];
+    expect(preselect(series, mae)).toEqual(["blend", "ai", "dwd_icon_d2", "chmi_aladin_cz_1km", "model_b"]);
+  });
+
+  it("skips a missing default and takes the next-best model when the leader is already in the set", () => {
+    const series = ["blend", "ai", "model_a", "model_b"];
+    const mae = [0.2, 0.4, 0.5, 0.6];
+    expect(preselect(series, mae)).toEqual(["blend", "ai", "model_a"]);
   });
 });
 
