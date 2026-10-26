@@ -1,54 +1,84 @@
 import type { Catalog } from "./types";
 
+const REPO = "https://github.com/JerryWoof/MeteoVerdict-Verify";
+
 export function Info({ catalog }: { catalog: Catalog }) {
   const minPairs = catalog.thresholds.min_pairs;
   const keep = Math.round(catalog.thresholds.keep_fraction * 100);
   return (
     <section className="view info">
+      <h2>Open source</h2>
       <p>
-        The forecasts are the public releases as they were issued. A score uses only hours where a ČHMÚ station recorded an observation. The code that builds these numbers is in the repository.
+        The scoring code and the files it reads are public. The same releases can be checked again by anyone.{" "}
+        <a href={REPO}>JerryWoof/MeteoVerdict-Verify</a>.
       </p>
 
-      <h2>What is compared</h2>
+      <h2>Immutable Git releases</h2>
       <p>
-        Each release is taken at its snapshot time. A model contributes the run that was available then. A later run is not written back, and a withdrawn release is left out. MeteoVerdict and MeteoVerdict AI are the values stored in that release. They are scored with the same rule as every other series.
+        Each forecast is a GitHub release, published when it was issued. The release carries a cryptographic attestation.
+        The ledger row stores the tar sha256 and the chain hash of the rows before it. A later forecast is not written
+        back into an earlier release. That is the fairness argument: the number was public before the observations used
+        to score it.
+      </p>
+      <p>
+        <a href={`${REPO}/releases`}>Releases</a>
+        {" · "}
+        <a href={`${REPO}/tree/main/ledger`}>Ledger files</a>
+        {" · "}
+        <a href={`${REPO}/blob/main/preregistration/v1.md`}>Preregistration</a>
+      </p>
+      <p>
+        How a forecast gets into a release is the Git history of that repository: one snapshot, one tag, one tar. This
+        site starts from those tags.
+      </p>
+      <p>
+        A release taken down on purpose is listed in <code>ledger/withdrawn.json</code>. It is left out of the scores.
+        Its ledger row and hash stay in the chain, so the earlier history is still dated. Those rows are not rewritten
+        to hide the withdrawal.
       </p>
 
-      <h2>Truth</h2>
+      <h2>What this site does with a release</h2>
       <p>
-        Truth is the ČHMÚ observation at that station and hour. Every series is compared with that same observation. A day stays provisional until a checked file replaces it, and the scores can change when that happens.
+        The build checks the tar sha256 against the ledger row, then writes the static files the browser loads: the
+        catalog, the scores, and one chart file per release. It does not edit the forecast values in the release. A
+        hash mismatch stops the build.
       </p>
 
-      <h2>Common-pair MAE</h2>
+      <h2>How a score is computed</h2>
       <p>
-        MAE is the mean of |forecast − observation|. A lower value is a closer forecast on that set of hours. The table is sorted by that MAE, lowest first. No series is held at the top.
+        Truth is the ČHMÚ observation at that station and hour. MAE is the mean of |forecast − observation|. The table
+        is that order, lowest first. Nothing is held at the top.
       </p>
       <p>
-        A station-hour is counted only when every series in the table has a forecast and the observation exists. A missing hour is left missing. Nothing is filled from an older release.
+        A station-hour counts only when every series in the table has a forecast and the observation exists. A missing
+        hour stays missing. Nothing is filled from an older release.
       </p>
       <p>
-        The shared set starts from the hours where MeteoVerdict AI and an observation both exist. Other series are added from the fullest coverage to the sparsest, and only while the shared hours stay at least {keep}% of that set and at least {minPairs} pairs. A series that would shrink the set further is listed as excluded. It does not receive a second MAE on a different set of hours.
-      </p>
-
-      <h2>Lead windows</h2>
-      <p>
-        D+k is valid time minus snapshot time in [24k, 24k+24) hours, for k = 0…5. D+0 is the first 24 hours. Every series uses that same window. Full is the unweighted mean of the rounded lead scores that have pairs. A lead with no pairs is left out of the mean. Full is that definition, not a choice of which leads to include.
+        The shared set starts from the hours where MeteoVerdict AI and an observation both exist. Other series join
+        from the fullest coverage to the sparsest, and only while the shared hours stay at least {keep}% of that set
+        and at least {minPairs} pairs. A series that would shrink the set further is listed as excluded. It does not
+        get a second MAE on a different set of hours.
       </p>
       <p>
-        The preregistration’s main bands are D+1 to D+3. D+4 and D+5 are secondary.
+        D+k is valid time minus snapshot time in [24k, 24k+24) hours, for k = 0…5. Every series uses that same window.
+        Full is the unweighted mean of the rounded lead scores that have pairs. A lead with no pairs is left out of
+        the mean. The preregistration’s main bands are D+1 to D+3. D+4 and D+5 are secondary.
       </p>
 
       <h2>Scores and Ledger</h2>
       <p>
-        Scores is the network figure for the whole recorded period: one MAE per series on the common station-hours. Open a row, or a bar, for how that number was calculated and where the error is smaller or larger.
+        Scores is the network figure for the recorded period: one MAE per series on the common station-hours. Open a
+        row, or a bar, for the station-hours behind that number.
       </p>
       <p>
-        Ledger opens one release at one station, so the forecast can be read against the observations on those hours. It is not a second network score. One station and a few hours can sit in a different order from the network mean.
+        Ledger opens one release at one station, the oldest release in the list on load, so a forecast can be read
+        against the observations on those hours. It is not a second network score. One station and a few hours can
+        sit in a different order from the network mean.
       </p>
-
-      <h2>Limits</h2>
       <p>
-        The line under the title is the data-volume label. Fewer than 30 live snapshot days is not enough data, and this page does not say that a model works. Scores use the full-precision errors. The Ledger chart is drawn from values rounded to a tenth, so a one-station figure can differ in the second decimal.
+        The line under the title is the data-volume label. Fewer than 30 live snapshot days is not enough data, and
+        this page does not say that a model works. Scores use the full-precision errors. The Ledger chart is drawn
+        from values rounded to a tenth.
       </p>
     </section>
   );

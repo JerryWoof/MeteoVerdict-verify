@@ -50,14 +50,36 @@ export function preselect(series: string[], mae: number[]): string[] {
   return out;
 }
 
-const PALETTE = ["#c2410c", "#1d4ed8", "#6d28d9", "#a16207", "#0369a1", "#be123c", "#3f6212", "#0f766e", "#7c3aed", "#44403c"];
+/** Fixed series colors. ECMWF variants share one brown. Unknown ids use the spare pastel. */
+const SERIES_COLOR: Record<string, string> = {
+  ai: "#1F5FBF",
+  blend: "#E8731A",
+  combined: "#E8731A",
+  dwd_icon_d2: "#0E9C8A",
+  chmi_aladin_cz_1km: "#D6286F",
+  chmi_aladin_central_europe_2km: "#8B1E1E",
+  ecmwf_ifs: "#8C5A2B",
+  ecmwf_ifs025: "#8C5A2B",
+  ecmwf_aifs025_single: "#8C5A2B",
+  cma_grapes_global: "#5FA82E",
+  dmi_harmonie_arome_europe: "#C9A400",
+  dwd_icon: "#6A3FB5",
+  dwd_icon_eu: "#00A6D6",
+  gem_global: "#B04AC4",
+  geosphere_arome_austria: "#5A5A5A",
+  jma_gsm: "#9EC5F0",
+  knmi_harmonie_arome_europe: "#F7B07A",
+  meteofrance_arpege_europe: "#86D6C3",
+  meteofrance_arpege_world: "#F2A0C0",
+  ncep_aigfs025: "#C3B1E8",
+  ncep_gfs_global: "#B9DC8C",
+  ukmo_global_deterministic_10km: "#E8D27A",
+};
+
+export const SERIES_FALLBACK = "#B5A27A";
 
 export function seriesColor(id: string): string {
-  if (id === "ai") return "#0f6b66";
-  if (id === "blend") return "#9a3412";
-  let hash = 0;
-  for (let i = 0; i < id.length; i += 1) hash = (hash * 33 + id.charCodeAt(i)) >>> 0;
-  return PALETTE[hash % PALETTE.length];
+  return SERIES_COLOR[id] ?? SERIES_FALLBACK;
 }
 
 export async function loadJson(url: string): Promise<unknown> {

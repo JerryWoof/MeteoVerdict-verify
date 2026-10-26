@@ -4,6 +4,7 @@ import { forecastDates, fullAxis, leadDayAxis, showClockTick, utcMidnight, type 
 import { decodeStations, loadJson, preselect, seriesColor } from "./lib/codec";
 import { calendarDayFacts, emptyLeadTitle, leadState, releaseCoverageThin, type LeadFact } from "./lib/coverage";
 import { fmtTime, seriesName } from "./lib/format";
+import { pickDefaultRelease } from "./lib/releases";
 import { scoreRows, type Row } from "./lib/score";
 import { loadSelection, saveSelection } from "./lib/selectionMemory";
 import { buildSnapshotChart, type StationGrid } from "./lib/snapshotChart";
@@ -37,7 +38,7 @@ function latestPerDay(snaps: CatalogSnap[]): CatalogSnap[] {
 }
 
 function pickDefault(snaps: CatalogSnap[]): string {
-  return snaps[snaps.length - 1]?.id ?? "";
+  return pickDefaultRelease(snaps);
 }
 
 function inCalendarDay(validIso: string, snapshotIso: string, lead: LeadPick): boolean {

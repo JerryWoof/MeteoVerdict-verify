@@ -4,7 +4,8 @@ import { inLead, leadOf } from "./score";
 /** ČHMÚ observation stroke. Models stay solid so this dotted line stays distinct. */
 export const OBS_DASH = "2 4";
 export const OBS_NAME = "Obs · naměřené";
-export const OBS_COLOR = "#1e2430";
+export const OBS_COLOR = "#1d2430";
+export const SERIES_WIDTH = 2;
 
 export type StationGrid = {
   id: string;
@@ -112,7 +113,7 @@ export function buildSnapshotChart(args: {
         name: plainNames ? label : `${label} · ${snapLabel(grid.snapshotTime)}`,
         color: color(id),
         values,
-        width: id === "ai" ? 2.4 : 1.8,
+        width: SERIES_WIDTH,
       });
     }
   }
@@ -124,7 +125,7 @@ export function buildSnapshotChart(args: {
       name: OBS_NAME,
       color: OBS_COLOR,
       values: obsValues,
-      width: 2.6,
+      width: SERIES_WIDTH,
       dash: OBS_DASH,
     });
   }

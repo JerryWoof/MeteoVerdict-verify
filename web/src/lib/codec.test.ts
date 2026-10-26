@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeRow, preselect } from "./codec";
+import { SERIES_FALLBACK, decodeRow, preselect, seriesColor } from "./codec";
 import { scoreRows } from "./score";
 
 describe("delta-tenths", () => {
@@ -20,6 +20,21 @@ describe("preselect", () => {
     const series = ["blend", "ai", "model_a", "model_b"];
     const mae = [0.2, 0.4, 0.5, 0.6];
     expect(preselect(series, mae)).toEqual(["blend", "ai", "model_a"]);
+  });
+});
+
+describe("seriesColor", () => {
+  it("assigns the fixed palette, including aliases and the spare pastel", () => {
+    expect(seriesColor("ai")).toBe("#1F5FBF");
+    expect(seriesColor("blend")).toBe("#E8731A");
+    expect(seriesColor("combined")).toBe(seriesColor("blend"));
+    expect(seriesColor("dwd_icon_d2")).toBe("#0E9C8A");
+    expect(seriesColor("ukmo_global_deterministic_10km")).toBe("#E8D27A");
+    const ecmwf = "#8C5A2B";
+    expect(seriesColor("ecmwf_ifs")).toBe(ecmwf);
+    expect(seriesColor("ecmwf_ifs025")).toBe(ecmwf);
+    expect(seriesColor("ecmwf_aifs025_single")).toBe(ecmwf);
+    expect(seriesColor("not_a_model")).toBe(SERIES_FALLBACK);
   });
 });
 

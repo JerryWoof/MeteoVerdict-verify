@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OBS_DASH, OBS_NAME, buildSnapshotChart, type StationGrid } from "./snapshotChart";
+import { OBS_COLOR, OBS_DASH, OBS_NAME, SERIES_WIDTH, buildSnapshotChart, type StationGrid } from "./snapshotChart";
 
 function grid(): StationGrid {
   const hours = 48;
@@ -34,6 +34,8 @@ describe("buildSnapshotChart", () => {
       "20261024T0000Z:model_a",
       "20261024T0000Z:model_b",
     ]);
+    expect(chart.series.map((line) => line.width)).toEqual([SERIES_WIDTH, SERIES_WIDTH, SERIES_WIDTH, SERIES_WIDTH]);
+    expect(chart.series[3].color).toBe(OBS_COLOR);
     expect(chart.series[0].values[0]).toBe(11);
     expect(chart.series[1].values[0]).toBe(12);
     expect(chart.series[2].values[0]).toBe(8);

@@ -204,7 +204,6 @@ th, td { padding: 0.42rem 0.55rem; border-bottom: 1px solid var(--line); text-al
 caption { caption-side: bottom; text-align: left; padding-top: 0.45rem; font-size: 0.82rem; }
 .num, .tick { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 td.num, th.num { text-align: right; }
-.is-ai { background: var(--ai); }
 .matrix .here { box-shadow: inset 0 -2px 0 var(--teal); }
 .scores button.row-open {
   display: inline-flex;
@@ -218,7 +217,8 @@ td.num, th.num { text-align: right; }
   text-underline-offset: 0.15em;
 }
 .scores tr.is-open { box-shadow: inset 3px 0 0 var(--teal); }
-.chart rect.hit { cursor: pointer; }
+.chart rect.hit, .chart path.hit { cursor: pointer; }
+.chart path.hit { fill: none; }
 
 .detail { margin: 0.2rem 0 1.4rem; }
 .detail-head {
@@ -322,7 +322,9 @@ figcaption { font-size: 0.86rem; color: var(--muted); margin-bottom: 0.2rem; }
 .fold { margin: 1.8rem 0 0.4rem; }
 .fold summary { cursor: pointer; font-weight: 600; }
 .info h2 { font-size: 1.35rem; margin: 1.7rem 0 0.35rem; }
+.info h2:first-child { margin-top: 0; }
 .info p { max-width: 40rem; line-height: 1.55; margin: 0.45rem 0; }
+.info a { color: var(--teal); }
 
 .footnote {
   margin: 1.6rem 0 0.6rem;

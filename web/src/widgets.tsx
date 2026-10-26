@@ -41,7 +41,7 @@ export function ScoreTable({
           {series.map((id, index) => {
             const open = openId === id;
             return (
-              <tr key={id} className={[id === "ai" ? "is-ai" : "", open ? "is-open" : ""].filter(Boolean).join(" ") || undefined}>
+              <tr key={id} className={open ? "is-open" : undefined}>
                 <td className="num">{index + 1}</td>
                 <td>
                   {onOpen ? (

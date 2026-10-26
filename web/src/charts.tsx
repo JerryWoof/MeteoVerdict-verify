@@ -1,6 +1,9 @@
 import { useId, useState } from "react";
 import { fmt } from "./lib/format";
 
+const FOCUS_WIDTH = 3.5;
+const DIM = 0.25;
+
 export type ChartSeries = {
   id: string;
   name: string;
@@ -40,6 +43,27 @@ function ticks(min: number, max: number): number[] {
   return Array.from({ length: 5 }, (_, index) => min + step * index);
 }
 
+function emphasisPaint(id: string, hoverId: string | null, pinId: string | null, base: number): { opacity: number; width: number } {
+  const focus = hoverId ?? pinId;
+  if (!focus) return { opacity: 1, width: base };
+  if (focus === id) return { opacity: 1, width: FOCUS_WIDTH };
+  return { opacity: DIM, width: base };
+}
+
+function ChartTip({ title, series, index }: { title: string; series: ChartSeries[]; index: number }) {
+  return (
+    <div className="tooltip">
+      <strong>{title}</strong>
+      {series.map((line) => (
+        <span key={line.id}>
+          <i style={{ background: line.color }} />
+          {line.name}: {fmt(line.values[index] ?? null)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function LineChart({
   labels,
   series,
@@ -55,6 +79,8 @@ export function LineChart({
   marks?: { index: number; text: string }[];
 }) {
   const [hover, setHover] = useState<number | null>(null);
+  const [hoverId, setHoverId] = useState<string | null>(null);
+  const [pinId, setPinId] = useState<string | null>(null);
   const labelId = useId();
   const pad = { l: 56, r: 18, t: 22, b: marks && marks.length > 0 ? 48 : 36 };
   const innerW = W - pad.l - pad.r;
@@ -86,7 +112,13 @@ export function LineChart({
         viewBox={`0 0 ${W} ${H}`}
         role="img"
         aria-labelledby={labelId}
-        onMouseLeave={() => setHover(null)}
+        onMouseLeave={() => {
+          setHover(null);
+          setHoverId(null);
+        }}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) setPinId(null);
+        }}
         onMouseMove={(event) => {
           const box = event.currentTarget.getBoundingClientRect();
           const x = ((event.clientX - box.left) / box.width) * W;
@@ -107,17 +139,42 @@ export function LineChart({
             </text>
           </g>
         ))}
+        {series.map((line) => {
+          const paint = emphasisPaint(line.id, hoverId, pinId, line.width ?? 2);
+          const d = path(line.values);
+          return (
+            <path
+              key={line.id}
+              d={d}
+              fill="none"
+              stroke={line.color}
+              strokeWidth={paint.width}
+              strokeOpacity={paint.opacity}
+              strokeDasharray={line.dash}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+          );
+        })}
         {series.map((line) => (
           <path
-            key={line.id}
+            key={`${line.id}-hit`}
             d={path(line.values)}
-            fill="none"
-            stroke={line.color}
-            strokeWidth={line.width ?? 2}
-            strokeDasharray={line.dash}
-            strokeLinejoin="round"
-            strokeLinecap="round"
-          />
+            className="hit"
+            stroke="transparent"
+            strokeWidth={14}
+            tabIndex={0}
+            onMouseEnter={() => setHoverId(line.id)}
+            onMouseLeave={() => setHoverId((current) => (current === line.id ? null : current))}
+            onFocus={() => setHoverId(line.id)}
+            onBlur={() => setHoverId((current) => (current === line.id ? null : current))}
+            onClick={(event) => {
+              event.stopPropagation();
+              setPinId(line.id);
+            }}
+          >
+            <title>{line.name}</title>
+          </path>
         ))}
         {hover != null && labels[hover] != null && (
           <line x1={xAt(hover)} x2={xAt(hover)} y1={pad.t} y2={pad.t + innerH} className="hover-line" />
@@ -140,17 +197,7 @@ export function LineChart({
           </text>
         )}
       </svg>
-      {hover != null && (
-        <div className="tooltip">
-          <strong>{hoverText?.[hover] ?? labels[hover]}</strong>
-          {series.map((line) => (
-            <span key={line.id}>
-              <i style={{ background: line.color }} />
-              {line.name}: {fmt(line.values[hover] ?? null)}
-            </span>
-          ))}
-        </div>
-      )}
+      {hover != null && <ChartTip title={hoverText?.[hover] ?? labels[hover]} series={series} index={hover} />}
     </div>
   );
 }
@@ -162,6 +209,9 @@ export function BarChart({
   yLabel,
   onSeries,
 }: Frame & { onSeries?: (id: string) => void }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const [hoverId, setHoverId] = useState<string | null>(null);
+  const [pinId, setPinId] = useState<string | null>(null);
   const labelId = useId();
   const pad = { l: 56, r: 12, t: 22, b: 36 };
   const innerW = W - pad.l - pad.r;
@@ -174,7 +224,18 @@ export function BarChart({
 
   return (
     <div className="chart">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-labelledby={labelId}>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        role="img"
+        aria-labelledby={labelId}
+        onMouseLeave={() => {
+          setHover(null);
+          setHoverId(null);
+        }}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) setPinId(null);
+        }}
+      >
         <title id={labelId}>{ariaLabel}</title>
         {ticks(min, max).map((tick) => (
           <g key={tick}>
@@ -194,6 +255,7 @@ export function BarChart({
                 const y = yAt(value);
                 const top = Math.min(y, y0);
                 const height = Math.max(1, Math.abs(y0 - y));
+                const paint = emphasisPaint(line.id, hoverId, pinId, 2);
                 return (
                   <rect
                     key={line.id}
@@ -202,24 +264,51 @@ export function BarChart({
                     width={Math.max(bar - 2, 1)}
                     height={height}
                     fill={line.color}
+                    fillOpacity={paint.opacity}
+                    stroke={paint.width > 2 ? line.color : "none"}
+                    strokeWidth={paint.width > 2 ? 1.5 : 0}
                     rx={1}
-                    className={onSeries ? "hit" : undefined}
-                    tabIndex={onSeries ? 0 : undefined}
+                    className="hit"
+                    tabIndex={0}
                     role={onSeries ? "button" : undefined}
-                    aria-label={onSeries ? `${line.name}. Open how this MAE was calculated.` : undefined}
-                    onClick={onSeries ? () => onSeries(line.id) : undefined}
+                    aria-label={onSeries ? `${line.name}. Open how this MAE was calculated.` : line.name}
+                    onMouseEnter={() => {
+                      setHover(index);
+                      setHoverId(line.id);
+                    }}
+                    onFocus={() => {
+                      setHover(index);
+                      setHoverId(line.id);
+                    }}
+                    onBlur={() => {
+                      setHoverId((current) => (current === line.id ? null : current));
+                      setHover((current) => (current === index ? null : current));
+                    }}
+                    onClick={
+                      onSeries
+                        ? (event) => {
+                            event.stopPropagation();
+                            setPinId(line.id);
+                            onSeries(line.id);
+                          }
+                        : (event) => {
+                            event.stopPropagation();
+                            setPinId(line.id);
+                          }
+                    }
                     onKeyDown={
                       onSeries
                         ? (event) => {
                             if (event.key === "Enter" || event.key === " ") {
                               event.preventDefault();
+                              setPinId(line.id);
                               onSeries(line.id);
                             }
                           }
                         : undefined
                     }
                   >
-                    {onSeries && <title>{`${line.name}. Open how this MAE was calculated.`}</title>}
+                    <title>{onSeries ? `${line.name}. Open how this MAE was calculated.` : line.name}</title>
                   </rect>
                 );
               })}
@@ -235,6 +324,7 @@ export function BarChart({
           </text>
         )}
       </svg>
+      {hover != null && <ChartTip title={labels[hover] ?? ""} series={series} index={hover} />}
     </div>
   );
 }
