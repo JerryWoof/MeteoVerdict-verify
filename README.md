@@ -8,7 +8,9 @@ Public, timestamped log of the forecasts of [MeteoVerdict](https://meteoverdict.
 
 ## Verification page
 
-The static site in [`web/`](web/) is the station-score view intended for `verify.meteoverdict.cz`. The apex `meteoverdict.cz` is a different site and is not configured here. The browser loads only JSON derived in GitHub Actions from the public snapshot releases and `obs/` (the snapshot tars are read in CI and not modified). How the scores are built, the size budget, and the Pages and DNS steps are in [`web/README.md`](web/README.md).
+**Live site:** <https://verify.meteoverdict.cz>. Alternate: <https://jerrywoof.github.io/MeteoVerdict-verify/>.
+
+The static site in [`web/`](web/) is the station-score view. The apex `meteoverdict.cz` is a different site and is not configured here. The browser loads only JSON derived in GitHub Actions from the public snapshot releases and `obs/` (the snapshot tars are read in CI and not modified). How the scores are built, the size budget, and the Pages and DNS steps are in [`web/README.md`](web/README.md).
 
 ## Licence
 
