@@ -29,9 +29,14 @@ function hourIso(snapshotIso: string, lead0: number, hour: number): string {
   return new Date(Date.parse(snapshotIso) + (lead0 + hour) * 3_600_000).toISOString();
 }
 
+function utcDay(iso: string): string {
+  return iso.slice(0, 10);
+}
+
 /**
  * One solid line per selected model that has a value in the lead window, then the dotted
- * observation line when `obs` has any value there. Observation is last so it paints on top.
+ * observation line. Observation hours cover the whole UTC day of every day the lead touches,
+ * including hours before the snapshot. Models stay on their forecast hours. Observation is last.
  */
 export function buildSnapshotChart(args: {
   grids: StationGrid[];
@@ -42,11 +47,20 @@ export function buildSnapshotChart(args: {
   snapLabel?: (iso: string) => string;
 }): { times: string[]; series: BuiltLine[]; obsPoints: number } {
   const { grids, selected, lead, names, color, snapLabel = (iso) => iso } = args;
-  const times = new Set<string>();
+  const forecast = new Set<string>();
   for (const grid of grids) {
     for (let hour = 0; hour < grid.hours; hour += 1) {
       const valid = hourIso(grid.snapshotTime, grid.lead0, hour);
-      if (inLead(leadOf(valid, grid.snapshotTime), lead)) times.add(valid);
+      if (inLead(leadOf(valid, grid.snapshotTime), lead)) forecast.add(valid);
+    }
+  }
+  const days = new Set([...forecast].map(utcDay));
+  const times = new Set<string>(forecast);
+  for (const grid of grids) {
+    for (let hour = 0; hour < grid.hours; hour += 1) {
+      const valid = hourIso(grid.snapshotTime, grid.lead0, hour);
+      if (!days.has(utcDay(valid))) continue;
+      if (grid.obs[hour] != null) times.add(valid);
     }
   }
   const labels = [...times].sort();
@@ -56,7 +70,8 @@ export function buildSnapshotChart(args: {
 
   for (const grid of grids) {
     for (let hour = 0; hour < grid.hours; hour += 1) {
-      const index = at.get(hourIso(grid.snapshotTime, grid.lead0, hour));
+      const valid = hourIso(grid.snapshotTime, grid.lead0, hour);
+      const index = at.get(valid);
       if (index == null) continue;
       const obs = grid.obs[hour] ?? null;
       if (obs != null) obsValues[index] = obs;
@@ -67,7 +82,9 @@ export function buildSnapshotChart(args: {
       let points = 0;
       const row = grid.values[seriesIndex] ?? [];
       for (let hour = 0; hour < grid.hours; hour += 1) {
-        const index = at.get(hourIso(grid.snapshotTime, grid.lead0, hour));
+        const valid = hourIso(grid.snapshotTime, grid.lead0, hour);
+        if (!forecast.has(valid)) continue;
+        const index = at.get(valid);
         if (index == null) continue;
         const value = row[hour] ?? null;
         values[index] = value;

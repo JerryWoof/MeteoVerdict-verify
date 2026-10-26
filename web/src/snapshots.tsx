@@ -242,21 +242,42 @@ export function Snapshots({ catalog }: { catalog: Catalog }) {
               onChange={setLead}
             />
             <Segmented
-              label="Score"
+              label="MAE sample"
               value={scope}
               options={[
-                { value: "network", label: "All 40 stations" },
-                { value: "station", label: "This station" },
+                {
+                  value: "network",
+                  label: "All 40 stations",
+                  title: "The table scores every station. The chart stays the station selected above.",
+                },
+                {
+                  value: "station",
+                  label: "This station",
+                  title: "The table scores only the station selected above. The chart is that same station.",
+                },
               ]}
               onChange={setScope}
             />
           </div>
+          <p className="hint" data-testid="mae-scope">
+            {scope === "network" ? (
+              <>
+                MAE sample: all {catalog.stations.length} stations
+                {scored ? `, ${scored.n.toLocaleString("en-GB")} common pairs` : ""}. The chart is only{" "}
+                {station?.name ?? "the selected station"}.
+              </>
+            ) : (
+              <>
+                MAE sample: {station?.name ?? "this station"} only
+                {scored ? `, ${scored.n.toLocaleString("en-GB")} common pairs` : ""}. Same station as the chart.
+              </>
+            )}
+          </p>
           <p className="hint">
-            Chart values are rounded to 0.1 {unit}. Each selected model is its own solid line. The ČHMÚ observation is
-            the dotted line labelled “{`Obs · naměřené`}”, drawn on top when this station has a value in the file.
-            The numbers below are computed in the browser from those rounded values, on the common pairs of the
-            releases you tick. The whole-period table uses full precision.
-            {scope === "station" ? " One station uses a floor of 6 pairs; the 40-station score uses the catalog floor." : ""}
+            Chart values are rounded to 0.1 {unit}. Each selected model is its own solid line. The dotted line is the
+            ČHMÚ observation for this station, for every hour of each UTC day the chart touches where a value is on file.
+            The numbers below use the MAE sample chosen above, on the common pairs of the releases you tick.
+            {scope === "station" ? " One station uses a floor of 6 pairs; all 40 stations use the catalog floor." : ""}
           </p>
           {waiting && <p className="banner">Loading {picked.length} snapshot {picked.length === 1 ? "file" : "files"}…</p>}
           {!waiting && picked.length > 0 && chart.series.length === 0 && (
@@ -274,7 +295,9 @@ export function Snapshots({ catalog }: { catalog: Catalog }) {
             <figure>
               <figcaption>
                 {station.name} · {catalog.variable_labels[variable] ?? variable} ({unit})
-                {chart.obsPoints > 0 ? " · dotted line is the ČHMÚ observation" : " · no observation in this window"}
+                {chart.obsPoints > 0
+                  ? ` · ${chart.obsPoints} observation hours`
+                  : " · no observation in this window"}
               </figcaption>
               <LineChart labels={chart.labels} series={chart.series} ariaLabel={`Forecast and observation at ${station.name}`} yLabel={unit} />
               <ul className="legend">
@@ -302,6 +325,7 @@ export function Snapshots({ catalog }: { catalog: Catalog }) {
             <>
               <SeriesToggles ids={scored.series} names={catalog.names} selected={selected} onChange={setSelected} />
               <p className="fair">
+                {scope === "network" ? `All ${catalog.stations.length} stations` : station?.name ?? "This station"}:{" "}
                 {scored.n.toLocaleString("en-GB")} common pairs
                 {scored.aiPairs !== scored.n ? ` (${scored.aiPairs.toLocaleString("en-GB")} with an AI value and an observation)` : ""}.
                 {scored.short ? " Short sample." : ""} Same hours for every series in the table.

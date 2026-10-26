@@ -449,16 +449,33 @@ def write_gz(path: Path, doc: dict) -> tuple[int, int, str]:
     return len(blob), len(raw), sha256_bytes(blob)
 
 
-def chart_document(snap: LoadedSnap, kept: pl.DataFrame, obs: pl.DataFrame, station_ids: list[str]) -> dict:
-    """Forecasts (after R1) and observations from lead 0 up to <144 h, for the three chart variables.
+def chart_span(when: datetime, max_lead: int) -> tuple[int, int]:
+    """Hours of the chart grid relative to the snapshot, and how many hours it holds.
 
-    Each series is stored on its own. A previous draft keyed only by station and hour, so every
-    model row was a copy of whichever series was seen first.
+    The grid starts at 00:00 UTC on the snapshot's day (so ``lead0`` is 0 or negative) and runs
+    through the end of the last UTC day the forecast touches. Observations on those days are kept
+    in full. A model value still exists only at its own valid hour.
+    """
+    day_start = when.replace(hour=0, minute=0, second=0, microsecond=0)
+    last_valid = when + timedelta(hours=max_lead)
+    day_end = last_valid.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    lead0 = int((day_start - when).total_seconds() // 3600)
+    hours = int((day_end - day_start).total_seconds() // 3600)
+    return lead0, hours
+
+
+def chart_document(snap: LoadedSnap, kept: pl.DataFrame, obs: pl.DataFrame, station_ids: list[str]) -> dict:
+    """Forecasts (after R1) and observations on the UTC days the forecast touches.
+
+    Each series is stored on its own. The grid is wider than the forecast when the snapshot is
+    not at 00:00 UTC: hours before the snapshot stay empty for every model and can still hold
+    the ČHMÚ observation.
     """
     row = snap.row
     when = vp.parse_time(row["snapshot_time"])
     names: set[str] = set()
     hours = 0
+    lead0 = LEAD0
     window = kept
     if not kept.is_empty():
         window = kept.filter(
@@ -467,13 +484,13 @@ def chart_document(snap: LoadedSnap, kept: pl.DataFrame, obs: pl.DataFrame, stat
             pl.col("lead_h") < LEAD_END,
         )
         if not window.is_empty():
-            hours = int(window["lead_h"].max()) - LEAD0 + 1
+            lead0, hours = chart_span(when, int(window["lead_h"].max()))
             names = set(window["series"].unique().to_list())
     order = series_order(names)
     grids: dict[str, dict] = {}
     if hours > 0:
-        t0 = when + timedelta(hours=LEAD0)
-        t1 = when + timedelta(hours=LEAD0 + hours)
+        t0 = when + timedelta(hours=lead0)
+        t1 = t0 + timedelta(hours=hours)
         obs_win = obs.filter(
             pl.col("variable").is_in(CHART_VARS),
             pl.col("valid_time") >= t0,
@@ -494,7 +511,7 @@ def chart_document(snap: LoadedSnap, kept: pl.DataFrame, obs: pl.DataFrame, stat
             for name in order:
                 rows = []
                 for sid in station_ids:
-                    rows.append([idx.get((name, sid, LEAD0 + hour)) for hour in range(hours)])
+                    rows.append([idx.get((name, sid, lead0 + hour)) for hour in range(hours)])
                 series_rows.append(encode_stations(rows))
             obs_rows = []
             for sid in station_ids:
@@ -509,7 +526,7 @@ def chart_document(snap: LoadedSnap, kept: pl.DataFrame, obs: pl.DataFrame, stat
         "issue_time": row.get("issue_time"),
         "model_version": row.get("model_version"),
         "sha256": row["asset"]["sha256"],
-        "lead0": LEAD0,
+        "lead0": lead0,
         "hours": hours,
         "scale": SCALE,
         "enc": ENC,

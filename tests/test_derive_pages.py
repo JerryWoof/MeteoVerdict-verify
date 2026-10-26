@@ -247,6 +247,29 @@ def test_d0_is_scored_and_each_model_keeps_its_own_chart_row(tmp_path: Path):
     assert ai_row[:24] != model_row[:24]
 
 
+def test_chart_keeps_the_whole_utc_day_of_observations(tmp_path: Path):
+    """A 06:00 snapshot used to start the grid at lead 0 and drop 00:00–05:00 of that day."""
+    obs = tmp_path / "obs"
+    obs.mkdir()
+    _obs_csv(obs / "obs-20261025.csv", "2026-10-25", 10.0)
+    when = SNAP + timedelta(hours=6)
+    snap = dp.LoadedSnap(row=_row(when), frame=frame_from(_hours(when, 0, 4, {"ai": 11.0, "model_a": 12.0})))
+    out = tmp_path / "data"
+    dp.build_dataset([snap], obs, _stations(), out)
+    import gzip
+    doc = json.loads(gzip.decompress((out / "snaps" / "20261025T0600Z.json.gz").read_bytes()))
+    assert doc["lead0"] == -6
+    assert doc["hours"] == 24
+    temps = doc["v"]["temperature_2m"]
+    ai = dp.decode_row(temps["s"][doc["series"].index("ai")].split(";")[0], doc["hours"])
+    other = dp.decode_row(temps["s"][doc["series"].index("model_a")].split(";")[0], doc["hours"])
+    observed = dp.decode_row(temps["obs"].split(";")[0], doc["hours"])
+    assert sum(value is not None for value in observed) == 24
+    assert observed[0] == 10.0 and observed[6] == 10.0
+    assert ai[0] is None and other[0] is None
+    assert ai[6] == 11.0 and other[6] == 12.0
+
+
 def test_provisional_repo_file_beats_snapshot_obs(tmp_path: Path):
     obs = tmp_path / "obs"
     obs.mkdir()

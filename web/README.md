@@ -57,7 +57,7 @@ Rule R7 is shown as a label (`not enough data` / `preliminary` / 60 days recorde
 
 `snaps/<id>.json.gz` (gzip of JSON, `enc: "delta-tenths-v1"`)
 
-- `lead0` (0), `hours`, `scale` (10), `stations`, `series`. Hour 0 of the grid is the snapshot time. Each entry of `s` is one model; the rows are not copies of each other.
+- `lead0` (0 at midnight, otherwise negative), `hours`, `scale` (10), `stations`, `series`. Hour 0 of the grid is 00:00 UTC on the snapshot’s day, not the snapshot time. Each entry of `s` is one model. Observations cover every hour of each UTC day the forecast touches, where a value is on file. Model rows stay empty outside their own valid hours.
 - `v[variable].obs` and `v[variable].s[i]`: one row per station, joined by `;`. Each row is comma-separated integers. The first present value is `round(x * 10)`; later present values are deltas from the previous present value; an empty token is a missing hour. Trailing gaps are omitted.
 - Variables in the chart file: `temperature_2m`, `wind_speed_10m`, `precipitation`. Cloud, sunshine and part-of-day gusts are in `scores.json` only.
 - The overview uses full-precision errors. The snapshot screen recomputes MAE in the browser from these tenths (at most 0.05 off each value).
