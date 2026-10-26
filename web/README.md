@@ -32,7 +32,7 @@ For each variable and lead, non-AI series are added from the fullest coverage to
 
 The **all-leads** number is the unweighted mean of those rounded per-lead scores, including D+0 when that lead has pairs. A lead with no pairs is left out of the mean. A series that is missing from a lead is skipped for that lead, not imputed.
 
-The whole-period screen opens on the first lead that has pairs (often D+0 or D+1). Leads with n = 0 stay on the control, drawn dashed. Choosing one replaces the charts with an explanation: that lead is `[24k, 24k+24)` hours after the snapshot, and it stays empty until observations exist in that window. The snapshot chart uses the same leads. Each selected model is a solid line. The ČHMÚ observation is a dotted line (`Obs · naměřené`) drawn on top whenever that station-hour is in the snapshot file.
+The whole-period screen opens on the first lead that has pairs (often D+0 or D+1). A lead with no scored station-hours is disabled, with the tooltip `D+2 has no scored station-hours`. A lead that is scored, but whose ČHMÚ hours cover under half of `24 × releases that forecast it`, stays clickable and is drawn dashed. The same 50% rule dims a release in the picker when temperature observations cover under half of that release’s D+0 window (`d0_obs_hours / 24`). The snapshot chart uses the same leads. Each selected model is a solid line. The ČHMÚ observation is a dotted line (`Obs · naměřené`) drawn only on the hours those model lines span.
 
 The ranking table is that MAE order. The AI is not moved to the top. The **charts** open with three series: MeteoVerdict AI, plus the two other series with the lowest MAE for the current selection, even when the AI itself is not among the three closest. That preselection is only which lines are drawn; the user can change it.
 
@@ -44,20 +44,20 @@ Rule R7 is shown as a label (`not enough data` / `preliminary` / 60 days recorde
 
 - `stations`, `names`, `units`, `variable_labels`, `leads`, `thresholds`
 - `versions[]`: `model_version`, snapshot count, first/last time, R7 `key`, `days`, `text`
-- `snapshots[]`: id (`20261025T0000Z`), time, issue time, model version, asset sha256, chart file name, gzip sha256 and size
+- `snapshots[]`: id (`20261025T0000Z`), time, issue time, model version, asset sha256, chart file name, gzip sha256 and size, `d0_obs_hours` (temperature hours in that release’s D+0 window) and `d0_window_hours` (24)
 - `obs_days[]`: `day`, `quality` (`final` or `provisional`), `source`
 - `withdrawn_skipped`, `provenance`
 
 `scores.json` → `by_version[model_version][variable]`
 
-- `leads["0".."5"]` when that lead has pairs (`"0"` is D+0). A lead with no pairs is omitted, which the page shows as n = 0. Each present lead has `series` in MAE order, parallel `mae` / `bias` / `rmse`, `n` (common pairs), `ai_pairs`, `excluded`, `dropped_run_unavailable`, `short`
+- `leads["0".."5"]` when that lead has pairs (`"0"` is D+0). A lead with no pairs is omitted, which the page shows as n = 0 and disables. Each present lead has `series` in MAE order, parallel `mae` / `bias` / `rmse`, `n` (common pairs), `ai_pairs`, `excluded`, `dropped_run_unavailable`, `short`, plus `obs_slots`, `obs_window` and `obs_coverage`. `obs_slots` is the number of distinct hours with an observation, summed over releases that have a model value in the lead. `obs_window` is that release count times 24. Coverage under 0.5 dims the lead.
 - `overall`: unweighted mean of the rounded lead scores; `leads_for[series]` lists which leads entered the mean
 - `by_day`: one MAE per snapshot UTC day, for the same series as that lead
 - `by_station`: the same series, restricted to each station’s hours
 
 `snaps/<id>.json.gz` (gzip of JSON, `enc: "delta-tenths-v1"`)
 
-- `lead0` (0 at midnight, otherwise negative), `hours`, `scale` (10), `stations`, `series`. Hour 0 of the grid is 00:00 UTC on the snapshot’s day, not the snapshot time. Each entry of `s` is one model. Observations cover every hour of each UTC day the forecast touches, where a value is on file. Model rows stay empty outside their own valid hours.
+- `lead0` is 0. Hour 0 of the grid is the snapshot time. `hours` runs through the last forecast hour in D+0..D+5. Each entry of `s` is one model. Observations are stored on those same forecast hours, not on the rest of the UTC day. The chart clips them again to the earliest and latest hour where a selected model has a value.
 - `v[variable].obs` and `v[variable].s[i]`: one row per station, joined by `;`. Each row is comma-separated integers. The first present value is `round(x * 10)`; later present values are deltas from the previous present value; an empty token is a missing hour. Trailing gaps are omitted.
 - Variables in the chart file: `temperature_2m`, `wind_speed_10m`, `precipitation`. Cloud, sunshine and part-of-day gusts are in `scores.json` only.
 - The overview uses full-precision errors. The snapshot screen recomputes MAE in the browser from these tenths (at most 0.05 off each value).

@@ -29,14 +29,11 @@ function hourIso(snapshotIso: string, lead0: number, hour: number): string {
   return new Date(Date.parse(snapshotIso) + (lead0 + hour) * 3_600_000).toISOString();
 }
 
-function utcDay(iso: string): string {
-  return iso.slice(0, 10);
-}
-
 /**
- * One solid line per selected model that has a value in the lead window, then the dotted
- * observation line. Observation hours cover the whole UTC day of every day the lead touches,
- * including hours before the snapshot. Models stay on their forecast hours. Observation is last.
+ * One solid line per selected model that has a value in the lead, then the dotted observation.
+ * The axis is that selection's range: from the earliest selected model value to the latest.
+ * Observation is the underlay on the same interval, including gaps inside it. Hours outside
+ * that range are dropped, so Obs is never longer than the model lines.
  */
 export function buildSnapshotChart(args: {
   grids: StationGrid[];
@@ -47,44 +44,48 @@ export function buildSnapshotChart(args: {
   snapLabel?: (iso: string) => string;
 }): { times: string[]; series: BuiltLine[]; obsPoints: number } {
   const { grids, selected, lead, names, color, snapLabel = (iso) => iso } = args;
-  const forecast = new Set<string>();
+  const selectedSet = new Set(selected);
+  let minMs = Number.POSITIVE_INFINITY;
+  let maxMs = Number.NEGATIVE_INFINITY;
+  const inWindow: { grid: StationGrid; hour: number; iso: string; ms: number }[] = [];
+
   for (const grid of grids) {
+    const picked = grid.seriesIds.flatMap((id, index) => (selectedSet.has(id) ? [index] : []));
     for (let hour = 0; hour < grid.hours; hour += 1) {
-      const valid = hourIso(grid.snapshotTime, grid.lead0, hour);
-      if (inLead(leadOf(valid, grid.snapshotTime), lead)) forecast.add(valid);
+      const iso = hourIso(grid.snapshotTime, grid.lead0, hour);
+      const ms = Date.parse(iso);
+      if (!inLead(leadOf(iso, grid.snapshotTime), lead)) continue;
+      inWindow.push({ grid, hour, iso, ms });
+      for (const seriesIndex of picked) {
+        if ((grid.values[seriesIndex]?.[hour] ?? null) == null) continue;
+        if (ms < minMs) minMs = ms;
+        if (ms > maxMs) maxMs = ms;
+      }
     }
   }
-  const days = new Set([...forecast].map(utcDay));
-  const times = new Set<string>(forecast);
-  for (const grid of grids) {
-    for (let hour = 0; hour < grid.hours; hour += 1) {
-      const valid = hourIso(grid.snapshotTime, grid.lead0, hour);
-      if (!days.has(utcDay(valid))) continue;
-      if (grid.obs[hour] != null) times.add(valid);
-    }
-  }
-  const labels = [...times].sort();
+  if (!Number.isFinite(minMs)) return { times: [], series: [], obsPoints: 0 };
+
+  const labels = [...new Set(inWindow.filter((slot) => slot.ms >= minMs && slot.ms <= maxMs).map((slot) => slot.iso))].sort();
   const at = new Map(labels.map((iso, index) => [iso, index]));
   const obsValues = labels.map(() => null as number | null);
   const series: BuiltLine[] = [];
 
   for (const grid of grids) {
     for (let hour = 0; hour < grid.hours; hour += 1) {
-      const valid = hourIso(grid.snapshotTime, grid.lead0, hour);
-      const index = at.get(valid);
+      const iso = hourIso(grid.snapshotTime, grid.lead0, hour);
+      const index = at.get(iso);
       if (index == null) continue;
       const obs = grid.obs[hour] ?? null;
       if (obs != null) obsValues[index] = obs;
     }
     grid.seriesIds.forEach((id, seriesIndex) => {
-      if (!selected.includes(id)) return;
+      if (!selectedSet.has(id)) return;
       const values = labels.map(() => null as number | null);
       let points = 0;
       const row = grid.values[seriesIndex] ?? [];
       for (let hour = 0; hour < grid.hours; hour += 1) {
-        const valid = hourIso(grid.snapshotTime, grid.lead0, hour);
-        if (!forecast.has(valid)) continue;
-        const index = at.get(valid);
+        const iso = hourIso(grid.snapshotTime, grid.lead0, hour);
+        const index = at.get(iso);
         if (index == null) continue;
         const value = row[hour] ?? null;
         values[index] = value;

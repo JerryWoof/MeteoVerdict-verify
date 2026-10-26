@@ -450,26 +450,60 @@ def write_gz(path: Path, doc: dict) -> tuple[int, int, str]:
 
 
 def chart_span(when: datetime, max_lead: int) -> tuple[int, int]:
-    """Hours of the chart grid relative to the snapshot, and how many hours it holds.
+    """Forecast hours only. ``lead0`` is 0: hour 0 is the snapshot instant.
 
-    The grid starts at 00:00 UTC on the snapshot's day (so ``lead0`` is 0 or negative) and runs
-    through the end of the last UTC day the forecast touches. Observations on those days are kept
-    in full. A model value still exists only at its own valid hour.
+    The grid runs through the last forecast hour in D+0..D+5. Observations are stored on those
+    same hours. The chart then clips them to the selected models' time range, so a full UTC day
+    is not drawn when the forecast starts later than 00:00.
     """
-    day_start = when.replace(hour=0, minute=0, second=0, microsecond=0)
-    last_valid = when + timedelta(hours=max_lead)
-    day_end = last_valid.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
-    lead0 = int((day_start - when).total_seconds() // 3600)
-    hours = int((day_end - day_start).total_seconds() // 3600)
-    return lead0, hours
+    del when
+    last = max(int(max_lead), LEAD0)
+    return LEAD0, last - LEAD0 + 1
+
+
+def lead_coverage(kept: pl.DataFrame, obs: pl.DataFrame, when: datetime) -> dict[str, list[dict]]:
+    """Per variable and lead: whether any model value falls in the 24 h window, and how many
+    distinct hours in that window have a ČHMÚ observation at any station.
+
+    The denominator used later is ``model_snaps * 24`` (the lead window length), not the count
+    of hours a model happened to emit and not station-hours.
+    """
+    result = {
+        variable: [{"model": False, "obs_hours": 0} for _ in LEADS]
+        for variable in ss.VARIABLES
+    }
+    if not kept.is_empty():
+        band = kept.filter(
+            (pl.col("lead_h") >= LEAD0) & (pl.col("lead_h") < LEAD_END) & pl.col("value").is_not_null()
+        )
+        if not band.is_empty():
+            present = band.select("variable", (pl.col("lead_h") // 24).alias("lead")).unique()
+            for variable, lead in present.iter_rows():
+                lead_i = int(lead)
+                if variable in result and 0 <= lead_i < len(LEADS):
+                    result[variable][lead_i]["model"] = True
+    if not obs.is_empty():
+        for lead in LEADS:
+            t0 = when + timedelta(hours=24 * lead)
+            t1 = t0 + timedelta(hours=24)
+            window = obs.filter(
+                (pl.col("valid_time") >= t0) & (pl.col("valid_time") < t1) & pl.col("obs").is_not_null()
+            )
+            if window.is_empty():
+                continue
+            counts = window.group_by("variable").agg(pl.col("valid_time").n_unique().alias("n"))
+            for variable, count in counts.iter_rows():
+                if variable in result:
+                    result[variable][lead]["obs_hours"] = int(count)
+    return result
 
 
 def chart_document(snap: LoadedSnap, kept: pl.DataFrame, obs: pl.DataFrame, station_ids: list[str]) -> dict:
-    """Forecasts (after R1) and observations on the UTC days the forecast touches.
+    """Forecasts (after R1) and the observations that fall on those same forecast hours.
 
-    Each series is stored on its own. The grid is wider than the forecast when the snapshot is
-    not at 00:00 UTC: hours before the snapshot stay empty for every model and can still hold
-    the ČHMÚ observation.
+    Each series is stored on its own. Hours before the snapshot, and hours after the last
+    forecast hour, are not in the file. The page still clips Obs to the models drawn for the
+    current lead.
     """
     row = snap.row
     when = vp.parse_time(row["snapshot_time"])
@@ -587,6 +621,7 @@ def score_variable(
     station_ids: list[str],
     days: list[str],
     dropped: dict[tuple[str, int], dict[str, int]],
+    coverage: dict[int, dict] | None = None,
 ) -> dict:
     """Per-lead common-pair scores, plus the day and station breakdowns of that same series set."""
     leads_out: dict[str, dict] = {}
@@ -625,6 +660,13 @@ def score_variable(
             "dropped_run_unavailable": dropped.get((variable, lead), {}),
             "short": choice.short,
         }
+        stats = (coverage or {}).get(lead)
+        if stats and stats.get("model_snaps"):
+            slots = int(stats["obs_slots"])
+            window = int(stats["model_snaps"]) * 24
+            leads_out[key]["obs_slots"] = slots
+            leads_out[key]["obs_window"] = window
+            leads_out[key]["obs_coverage"] = round(slots / window, 4) if window else 0.0
         # Day and station breakdowns use the same series, so a station-hour counts only when all of them have a value.
         common = choice.common
         day_n = {day: 0 for day in days}
@@ -684,9 +726,16 @@ def overall_from_leads(leads_out: dict[str, dict]) -> dict:
     }
 
 
-def score_version(files: list[Path], station_ids: list[str], days: list[str], dropped: dict) -> dict:
+def score_version(
+    files: list[Path],
+    station_ids: list[str],
+    days: list[str],
+    dropped: dict,
+    coverage: dict[str, dict[int, dict]] | None = None,
+) -> dict:
+    coverage = coverage or {}
     return {
-        variable: score_variable(files, variable, station_ids, days, dropped)
+        variable: score_variable(files, variable, station_ids, days, dropped, coverage.get(variable))
         for variable in ss.VARIABLES
     }
 
@@ -736,12 +785,24 @@ def build_dataset(
     catalog_snaps = []
     pair_files: dict[str, list[Path]] = {}
     dropped: dict[str, dict[tuple[str, int], dict[str, int]]] = {}
+    # version → variable → lead → obs hours summed over releases that forecast that lead, and how many such releases.
+    coverage_acc: dict[str, dict[str, dict[int, dict]]] = {}
     for snap, kept, late in prepared:
         row = snap.row
         version = row.get("model_version") or "unknown"
         sid = snap_id_of(row)
         day = row["snapshot_time"][:10]
+        when = vp.parse_time(row["snapshot_time"])
         doc = chart_document(snap, kept, obs, station_ids)
+        cov = lead_coverage(kept, obs, when)
+        version_cov = coverage_acc.setdefault(version, {})
+        for variable, leads in cov.items():
+            dest = version_cov.setdefault(variable, {})
+            for lead, item in enumerate(leads):
+                slot = dest.setdefault(lead, {"obs_slots": 0, "model_snaps": 0})
+                if item["model"]:
+                    slot["model_snaps"] += 1
+                    slot["obs_slots"] += int(item["obs_hours"])
         gz_bytes, raw_bytes, digest = write_gz(snap_dir / f"{sid}.json.gz", doc)
         catalog_snaps.append({
             "id": sid,
@@ -755,6 +816,10 @@ def build_dataset(
             "file_bytes": gz_bytes,
             "raw_bytes": raw_bytes,
             "chart_hours": doc["hours"],
+            # Hours in this release's D+0 window [0, 24) with a temperature observation at any station.
+            # The picker grays the release when this is under half of 24.
+            "d0_obs_hours": int(cov["temperature_2m"][0]["obs_hours"]),
+            "d0_window_hours": 24,
         })
         pairs = pairs_frame(kept, obs, sid, day)
         if not pairs.is_empty():
@@ -773,7 +838,9 @@ def build_dataset(
         group = [snap for snap in snaps if (snap.row.get("model_version") or "unknown") == version]
         days = sorted({snap.row["snapshot_time"][:10] for snap in group})
         files_v = pair_files.get(version, [])
-        by_version_scores[version] = score_version(files_v, station_ids, days, dropped.get(version, {})) if files_v else {
+        by_version_scores[version] = score_version(
+            files_v, station_ids, days, dropped.get(version, {}), coverage_acc.get(version)
+        ) if files_v else {
             variable: {"leads": {}, "overall": overall_from_leads({}), "by_day": {"days": days, "leads": {}}, "by_station": {}}
             for variable in ss.VARIABLES
         }
@@ -816,7 +883,14 @@ def build_dataset(
             "enc": ENC,
             "scale": SCALE,
             "variables": list(CHART_VARS),
-            "note": "Chart values are rounded to 0.1. Overview scores use full precision. Subset scores in the browser use the rounded chart values.",
+            "note": (
+                "Chart values are rounded to 0.1. The grid starts at the snapshot (lead0 = 0) and stops at the "
+                "last forecast hour. Observations are stored on those hours; the page draws them only inside "
+                "the selected models' time range. Overview scores use full precision. Subset scores in the "
+                "browser use the rounded chart values. d0_obs_hours counts distinct D+0 hours with a "
+                "temperature observation at any station; a lead's obs_coverage is that same hour count "
+                "divided by 24 times the releases that forecast the lead."
+            ),
         },
     }
     if ledger_meta:

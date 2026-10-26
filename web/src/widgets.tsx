@@ -144,24 +144,31 @@ export function Segmented<T extends string | number>({
 }: {
   label: string;
   value: T;
-  options: { value: T; label: string; title?: string; dim?: boolean }[];
+  options: { value: T; label: string; title?: string; dim?: boolean; disabled?: boolean }[];
   onChange: (value: T) => void;
 }) {
   return (
     <div className="segmented" role="radiogroup" aria-label={label}>
       <span className="seg-label">{label}</span>
       {options.map((option) => (
-        <button
-          key={String(option.value)}
-          type="button"
-          role="radio"
-          aria-checked={option.value === value}
-          title={option.title}
-          className={[option.value === value ? "active" : "", option.dim ? "dim" : ""].filter(Boolean).join(" ")}
-          onClick={() => onChange(option.value)}
-        >
-          {option.label}
-        </button>
+        <span key={String(option.value)} className="seg-item" title={option.title}>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={option.value === value}
+            disabled={option.disabled}
+            className={[
+              option.value === value ? "active" : "",
+              option.disabled ? "off" : "",
+              option.dim && !option.disabled ? "dim" : "",
+            ].filter(Boolean).join(" ")}
+            onClick={() => {
+              if (!option.disabled) onChange(option.value);
+            }}
+          >
+            {option.label}
+          </button>
+        </span>
       ))}
     </div>
   );

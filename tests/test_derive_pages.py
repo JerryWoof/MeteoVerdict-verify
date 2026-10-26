@@ -235,6 +235,11 @@ def test_d0_is_scored_and_each_model_keeps_its_own_chart_row(tmp_path: Path):
     assert block["leads"]["0"]["n"] == 24
     assert block["leads"]["0"]["series"] == ["ai", "model_a"]
     assert block["leads"]["0"]["mae"] == [1.0, 2.0]
+    assert block["leads"]["0"]["obs_slots"] == 24
+    assert block["leads"]["0"]["obs_window"] == 24
+    assert block["leads"]["0"]["obs_coverage"] == 1.0
+    assert catalog["snapshots"][0]["d0_obs_hours"] == 24
+    assert catalog["snapshots"][0]["d0_window_hours"] == 24
     assert block["overall"]["leads_used"] == [0]
     import gzip
     doc = json.loads(gzip.decompress((out / "snaps" / "20261025T0000Z.json.gz").read_bytes()))
@@ -247,27 +252,33 @@ def test_d0_is_scored_and_each_model_keeps_its_own_chart_row(tmp_path: Path):
     assert ai_row[:24] != model_row[:24]
 
 
-def test_chart_keeps_the_whole_utc_day_of_observations(tmp_path: Path):
-    """A 06:00 snapshot used to start the grid at lead 0 and drop 00:00–05:00 of that day."""
+def test_chart_obs_stays_inside_the_forecast_hours(tmp_path: Path):
+    """A 06:00 snapshot must not keep 00:00–05:00 just because that UTC day has observations."""
     obs = tmp_path / "obs"
     obs.mkdir()
     _obs_csv(obs / "obs-20261025.csv", "2026-10-25", 10.0)
     when = SNAP + timedelta(hours=6)
     snap = dp.LoadedSnap(row=_row(when), frame=frame_from(_hours(when, 0, 4, {"ai": 11.0, "model_a": 12.0})))
     out = tmp_path / "data"
-    dp.build_dataset([snap], obs, _stations(), out)
+    catalog = dp.build_dataset([snap], obs, _stations(), out)
     import gzip
     doc = json.loads(gzip.decompress((out / "snaps" / "20261025T0600Z.json.gz").read_bytes()))
-    assert doc["lead0"] == -6
-    assert doc["hours"] == 24
+    assert doc["lead0"] == 0
+    assert doc["hours"] == 4
     temps = doc["v"]["temperature_2m"]
     ai = dp.decode_row(temps["s"][doc["series"].index("ai")].split(";")[0], doc["hours"])
     other = dp.decode_row(temps["s"][doc["series"].index("model_a")].split(";")[0], doc["hours"])
     observed = dp.decode_row(temps["obs"].split(";")[0], doc["hours"])
-    assert sum(value is not None for value in observed) == 24
-    assert observed[0] == 10.0 and observed[6] == 10.0
-    assert ai[0] is None and other[0] is None
-    assert ai[6] == 11.0 and other[6] == 12.0
+    assert observed == [10.0, 10.0, 10.0, 10.0]
+    assert ai == [11.0, 11.0, 11.0, 11.0]
+    assert other == [12.0, 12.0, 12.0, 12.0]
+    # D+0 is still the 24 h window. The day file covers 06:00–23:00 (18 h); 00:00–05:00 next day is missing.
+    assert catalog["snapshots"][0]["d0_obs_hours"] == 18
+    scores = json.loads((out / "scores.json").read_text(encoding="utf-8"))
+    lead0 = scores["by_version"]["meteoverdict_ai-v2"]["temperature_2m"]["leads"]["0"]
+    assert lead0["obs_slots"] == 18
+    assert lead0["obs_window"] == 24
+    assert lead0["obs_coverage"] == 0.75
 
 
 def test_provisional_repo_file_beats_snapshot_obs(tmp_path: Path):

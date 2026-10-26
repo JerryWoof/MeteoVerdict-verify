@@ -76,34 +76,37 @@ describe("buildSnapshotChart", () => {
     expect(d1.series.find((line) => line.id === "obs")?.values[0]).toBe(10);
   });
 
-  it("keeps the whole UTC day of observations, including hours before the snapshot", () => {
-    const hours = 30;
-    const obs = Array.from({ length: hours }, (_, hour) => (hour < 24 ? 10 + hour * 0.1 : null));
-    const ai = Array.from({ length: hours }, (_, hour) => (hour >= 6 && hour < 24 ? 11 : null));
+  it("clips observations to the selected models' time range, including a gap inside it", () => {
+    const hours = 24;
+    const obs = Array.from({ length: hours }, (_, hour) => 10 + hour * 0.1);
+    const ai = Array.from({ length: hours }, (_, hour) => (hour >= 6 && hour <= 17 && hour !== 8 ? 11 : null));
     const chart = buildSnapshotChart({
       grids: [{
         id: "20261025T0600Z",
         snapshotTime: "2026-10-25T06:00:00Z",
-        lead0: -6,
+        lead0: 0,
         hours,
         seriesIds: ["ai"],
         obs,
         values: [ai],
       }],
       selected: ["ai"],
-      lead: "all",
+      lead: 0,
       names: { ai: "MeteoVerdict AI" },
       color: () => "#0f6b66",
     });
-    expect(chart.times[0]).toBe("2026-10-25T00:00:00.000Z");
-    expect(chart.obsPoints).toBe(24);
+    expect(chart.times[0]).toBe("2026-10-25T12:00:00.000Z");
+    expect(chart.times[chart.times.length - 1]).toBe("2026-10-25T23:00:00.000Z");
+    expect(chart.times).toHaveLength(12);
+    expect(chart.obsPoints).toBe(12);
     const model = chart.series[0];
     const observed = chart.series[1];
-    expect(model.values[0]).toBeNull();
-    expect(model.values[6]).toBe(11);
+    expect(model.values[0]).toBe(11);
+    expect(model.values[2]).toBeNull();
     expect(observed.dash).toBe(OBS_DASH);
-    expect(observed.values[0]).toBe(10);
-    expect(observed.values[6]).toBeCloseTo(10.6);
+    expect(observed.values[0]).toBeCloseTo(10.6);
+    expect(observed.values[2]).toBeCloseTo(10.8);
+    expect(observed.values.every((value) => value != null)).toBe(true);
   });
 
   it("omits the observation line when that station has no obs in the window", () => {

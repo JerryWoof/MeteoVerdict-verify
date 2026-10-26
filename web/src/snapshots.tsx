@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { LineChart } from "./charts";
 import { decodeStations, loadJson, preselect, seriesColor } from "./lib/codec";
 import { fmtTime, seriesName } from "./lib/format";
+import { combineLeadFacts, emptyLeadTitle, factsFromHours, leadState, releaseCoverageThin, type LeadFact } from "./lib/coverage";
 import { leadWindow } from "./lib/leads";
 import { inLead, leadOf, scoreRows, type Row } from "./lib/score";
 import { buildSnapshotChart, type StationGrid } from "./lib/snapshotChart";
@@ -40,12 +41,24 @@ function defaultSnap(catalog: Catalog): string[] {
   return pick ? [pick.id] : [];
 }
 
-function coversLead(file: SnapFile, lead: number): boolean {
-  if (file.hours <= 0) return false;
-  const first = file.lead0;
-  const last = file.lead0 + file.hours - 1;
-  const start = lead * 24;
-  return last >= start && first <= start + 23;
+function fileLeadFacts(file: SnapFile, variable: string): LeadFact[] {
+  const grid = gridOf(file, variable);
+  if (!grid) return factsFromHours(file.lead0, [], []);
+  const hourHasObs = Array.from({ length: file.hours }, () => false);
+  const hourHasModel = Array.from({ length: file.hours }, () => false);
+  for (let station = 0; station < file.stations.length; station += 1) {
+    for (let hour = 0; hour < file.hours; hour += 1) {
+      if (grid.obs[station]?.[hour] != null) hourHasObs[hour] = true;
+      if (hourHasModel[hour]) continue;
+      for (const rows of grid.series) {
+        if (rows[station]?.[hour] != null) {
+          hourHasModel[hour] = true;
+          break;
+        }
+      }
+    }
+  }
+  return factsFromHours(file.lead0, hourHasObs, hourHasModel);
 }
 
 export function Snapshots({ catalog }: { catalog: Catalog }) {
@@ -132,6 +145,18 @@ export function Snapshots({ catalog }: { catalog: Catalog }) {
     setSelected(present.includes("ai") ? ["ai", ...others] : others);
   }, [preset]);
 
+  const leadFacts = useMemo(
+    () => loaded.map(({ file }) => fileLeadFacts(file, variable)),
+    [loaded, variable],
+  );
+
+  useEffect(() => {
+    if (lead === "all" || loaded.length === 0) return;
+    if (lead < 0 || lead >= leadFacts[0]?.length) return;
+    const combined = combineLeadFacts(leadFacts.map((facts) => facts[lead] ?? { hasSeries: false, obsHours: 0 }));
+    if (leadState(combined.hasSeries, combined.obsHours, combined.windowHours) === "empty") setLead("all");
+  }, [lead, loaded.length, leadFacts]);
+
   const chart = useMemo(() => {
     const grids: StationGrid[] = [];
     for (const { file } of loaded) {
@@ -191,20 +216,34 @@ export function Snapshots({ catalog }: { catalog: Catalog }) {
             </button>
           </div>
           <ul>
-            {newestFirst.map((snap: CatalogSnap) => (
-              <li key={snap.id}>
-                <label>
-                  <input type="checkbox" checked={picked.includes(snap.id)} onChange={() => toggle(snap.id)} />
-                  <span>
-                    <strong>{fmtTime(snap.time)}</strong>
-                    <small>
-                      {snap.model_version}
-                      {errors[snap.id] ? ` — ${errors[snap.id]}` : ""}
-                    </small>
-                  </span>
-                </label>
-              </li>
-            ))}
+            {newestFirst.map((snap: CatalogSnap) => {
+              const thin = releaseCoverageThin(snap.d0_obs_hours, snap.d0_window_hours ?? 24);
+              const obsNote =
+                snap.d0_obs_hours == null
+                  ? ""
+                  : ` · D+0 obs ${snap.d0_obs_hours}/${snap.d0_window_hours ?? 24}`;
+              return (
+                <li key={snap.id} className={thin ? "thin" : undefined}>
+                  <label
+                    title={
+                      thin
+                        ? `ČHMÚ covers ${snap.d0_obs_hours} of ${snap.d0_window_hours ?? 24} hours in this release's D+0 window`
+                        : undefined
+                    }
+                  >
+                    <input type="checkbox" checked={picked.includes(snap.id)} onChange={() => toggle(snap.id)} />
+                    <span>
+                      <strong>{fmtTime(snap.time)}</strong>
+                      <small>
+                        {snap.model_version}
+                        {obsNote}
+                        {errors[snap.id] ? ` — ${errors[snap.id]}` : ""}
+                      </small>
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
           </ul>
         </div>
         <div>
@@ -232,12 +271,25 @@ export function Snapshots({ catalog }: { catalog: Catalog }) {
               value={lead}
               options={[
                 { value: "all" as LeadPick, label: "D+0–D+5", title: "Every hour stored in the snapshot file, from lead 0" },
-                ...catalog.leads.map((item) => ({
-                  value: item as LeadPick,
-                  label: `D+${item}`,
-                  dim: loaded.length > 0 && !loaded.some(({ file }) => coversLead(file, item)),
-                  title: `${leadWindow(item).label}. A dashed lead is outside the hours stored in the ticked releases.`,
-                })),
+                ...catalog.leads.map((item) => {
+                  const combined =
+                    loaded.length === 0
+                      ? null
+                      : combineLeadFacts(leadFacts.map((facts) => facts[item] ?? { hasSeries: false, obsHours: 0 }));
+                  const state = combined ? leadState(combined.hasSeries, combined.obsHours, combined.windowHours) : "ok";
+                  return {
+                    value: item as LeadPick,
+                    label: `D+${item}`,
+                    dim: state === "thin",
+                    disabled: state === "empty",
+                    title:
+                      state === "empty"
+                        ? emptyLeadTitle(item)
+                        : combined
+                          ? `${leadWindow(item).label} · ČHMÚ covers ${combined.obsHours} of ${combined.windowHours} hours`
+                          : leadWindow(item).label,
+                  };
+                }),
               ]}
               onChange={setLead}
             />
@@ -275,7 +327,8 @@ export function Snapshots({ catalog }: { catalog: Catalog }) {
           </p>
           <p className="hint">
             Chart values are rounded to 0.1 {unit}. Each selected model is its own solid line. The dotted line is the
-            ČHMÚ observation for this station, for every hour of each UTC day the chart touches where a value is on file.
+            ČHMÚ observation for this station, drawn only on the same hours as those model lines. A dimmed release or
+            lead has observations for under half of its 24-hour window. A lead with no model series is disabled.
             The numbers below use the MAE sample chosen above, on the common pairs of the releases you tick.
             {scope === "station" ? " One station uses a floor of 6 pairs; all 40 stations use the catalog floor." : ""}
           </p>

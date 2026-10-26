@@ -18,6 +18,9 @@ export type CatalogSnap = {
   file_bytes: number;
   raw_bytes: number;
   chart_hours: number;
+  /** Distinct hours in D+0 with a temperature observation at any station. Window length is d0_window_hours (24). */
+  d0_obs_hours?: number;
+  d0_window_hours?: number;
 };
 
 export type VersionMeta = {
@@ -90,6 +93,11 @@ export type LeadScore = {
   excluded: Excluded[];
   dropped_run_unavailable: Record<string, number>;
   short: boolean;
+  /** Distinct (release, hour) observations in this lead, over releases that forecast it. */
+  obs_slots?: number;
+  /** model releases × 24 h. Coverage is obs_slots / obs_window. */
+  obs_window?: number;
+  obs_coverage?: number;
 };
 
 export type OverallScore = {

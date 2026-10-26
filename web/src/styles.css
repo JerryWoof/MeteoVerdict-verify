@@ -123,6 +123,7 @@ main {
 
 .segmented { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
 .seg-label { font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-right: 0.2rem; }
+.seg-item { display: inline-flex; }
 .segmented button {
   border: 1px solid var(--line);
   background: transparent;
@@ -133,6 +134,14 @@ main {
 .segmented button.dim {
   color: var(--muted);
   border-style: dashed;
+}
+.segmented button.off,
+.segmented button:disabled {
+  color: var(--muted);
+  opacity: 0.38;
+  cursor: not-allowed;
+  background: transparent;
+  border-style: solid;
 }
 .segmented button.dim.active {
   background: #4b5563;
@@ -259,7 +268,8 @@ figcaption { font-size: 0.86rem; color: var(--muted); margin-bottom: 0.2rem; }
 .picker-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.4rem; }
 .picker ul { list-style: none; margin: 0.4rem 0 0; padding: 0; }
 .picker li { border-top: 1px solid var(--line); }
-.picker label { display: flex; gap: 0.45rem; align-items: flex-start; padding: 0.45rem 0; }
+.picker li.thin label { color: var(--muted); opacity: 0.55; }
+.picker label { display: flex; gap: 0.45rem; align-items: flex-start; padding: 0.45rem 0; cursor: pointer; }
 .picker small { display: block; color: var(--muted); font-size: 0.75rem; }
 .station-pick { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .station-pick select { text-transform: none; letter-spacing: 0; color: var(--ink); font-size: 1rem; }

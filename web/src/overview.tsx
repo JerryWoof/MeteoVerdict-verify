@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { BarChart, LineChart } from "./charts";
 import { preselect, seriesColor } from "./lib/codec";
 import { fmt, fmtDay, fmtTime, seriesName } from "./lib/format";
+import { emptyLeadTitle, scoredLeadVisual } from "./lib/coverage";
 import { firstScoredLead, leadOpensAfterObservations, leadPairCount, leadWindow } from "./lib/leads";
 import { unweighted } from "./lib/score";
 import type { Catalog, LeadPick, VariableScore } from "./types";
@@ -77,8 +78,16 @@ export function Overview({
   const [allStationColumns, setAllStationColumns] = useState(false);
 
   const active = byVariable?.[variable] ?? null;
-  const counts = catalog.leads.map((item) => ({ lead: item, n: leadPairCount(active, item) }));
-  const leadEmpty = lead !== "all" && (counts.find((item) => item.lead === lead)?.n ?? 0) === 0;
+  const counts = catalog.leads.map((item) => {
+    const doc = active?.leads[String(item)];
+    return { lead: item, n: leadPairCount(active, item), visual: scoredLeadVisual(doc), doc };
+  });
+  const leadEmpty = lead !== "all" && counts.find((item) => item.lead === lead)?.visual === "empty";
+
+  useEffect(() => {
+    if (lead === "all") return;
+    if (scoredLeadVisual(active?.leads[String(lead)]) === "empty") setLead(firstScoredLead(catalog.leads, active));
+  }, [lead, active, catalog.leads]);
   const leadKey = lead === "all" ? null : String(lead);
   const block = leadKey ? active?.leads[leadKey] : null;
   const overall = active?.overall;
@@ -215,11 +224,14 @@ export function Overview({
             ...counts.map((item) => ({
               value: item.lead as LeadPick,
               label: `D+${item.lead}`,
-              dim: item.n <= 0,
+              dim: item.visual === "thin",
+              disabled: item.visual === "empty",
               title:
-                item.n > 0
-                  ? `${leadWindow(item.lead).label} · ${item.n.toLocaleString("en-GB")} common pairs${item.lead >= 4 ? " · secondary lead (rule R2)" : ""}`
-                  : `${leadWindow(item.lead).label} · 0 pairs. Open for why this lead is empty.`,
+                item.visual === "empty"
+                  ? emptyLeadTitle(item.lead)
+                  : item.visual === "thin" && item.doc?.obs_window
+                    ? `${leadWindow(item.lead).label} · ČHMÚ covers ${item.doc.obs_slots} of ${item.doc.obs_window} hours in this lead`
+                    : `${leadWindow(item.lead).label} · ${item.n.toLocaleString("en-GB")} common pairs${item.lead >= 4 ? " · secondary lead (rule R2)" : ""}`,
             })),
           ]}
           onChange={setLead}
@@ -227,8 +239,9 @@ export function Overview({
       </div>
       <p className="hint lead-counts" data-testid="lead-counts">
         Common pairs for {catalog.variable_labels[variable] ?? variable}:{" "}
-        {counts.map((item) => `D+${item.lead} ${item.n.toLocaleString("en-GB")}`).join(" · ")}. A dashed lead has
-        none yet. It stays clickable so the page can say why.
+        {counts.map((item) => `D+${item.lead} ${item.n.toLocaleString("en-GB")}`).join(" · ")}. A dimmed lead has
+        ČHMÚ data for under half of its 24-hour range and can still be opened. A lead with no scored station-hours
+        is disabled.
       </p>
 
       {lead !== "all" && leadEmpty ? (
