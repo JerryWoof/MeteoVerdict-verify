@@ -9,7 +9,7 @@ import { EmptyState } from "./widgets";
 const BASE = import.meta.env.BASE_URL;
 
 export function App() {
-  const [tab, setTab] = useState<"overview" | "snaps">("overview");
+  const [tab, setTab] = useState<"scores" | "ledger">("scores");
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [scores, setScores] = useState<Scores | null>(null);
   const [version, setVersion] = useState<string>("");
@@ -44,19 +44,16 @@ export function App() {
       <a className="skip" href="#content">Skip to content</a>
       <header className="top">
         <div>
-          <p className="eyebrow">40 main ČHMÚ stations · whole recorded period</p>
+          <p className="eyebrow">ČHMÚ · 40 stations</p>
           <h1>MeteoVerdict Verify</h1>
-          <p className="lede">
-            How close each series is to the observations, on the same station-hours. MeteoVerdict AI is one series
-            among the others. Nothing here declares a winner.
-          </p>
+          <p className="lede">Mean absolute error against the observations, on the same station-hours.</p>
         </div>
         <nav>
-          <button type="button" aria-pressed={tab === "overview"} onClick={() => setTab("overview")}>
-            Whole period
+          <button type="button" aria-pressed={tab === "scores"} onClick={() => setTab("scores")}>
+            Scores
           </button>
-          <button type="button" aria-pressed={tab === "snaps"} onClick={() => setTab("snaps")}>
-            Snapshots
+          <button type="button" aria-pressed={tab === "ledger"} onClick={() => setTab("ledger")}>
+            Ledger
           </button>
         </nav>
       </header>
@@ -90,7 +87,7 @@ export function App() {
                 </label>
               )}
             </section>
-            {tab === "overview" ? (
+            {tab === "scores" ? (
               <Overview key={version} catalog={catalog} byVariable={byVariable} modelVersion={version} />
             ) : (
               <Snapshots catalog={catalog} />
@@ -103,16 +100,11 @@ export function App() {
       </main>
       <footer>
         <p>
-          Rules: preregistration v1 (R1–R5, R7, R11). Lead D+k is the half-open window from 24×k hours to 24×k+24 hours
-          after the snapshot, including D+0 (the first 24 hours) through D+5. The preregistration’s main bands are
-          still D+1 to D+3. Common pairs only; a missing run is not filled. Times are UTC.
-        </p>
-        <p>
           <a href="https://github.com/JerryWoof/MeteoVerdict-Verify">Repository</a>
           {" · "}
           <a href="https://github.com/JerryWoof/MeteoVerdict-Verify/blob/main/preregistration/v1.md">Preregistration</a>
           {" · "}
-          <a href="https://github.com/JerryWoof/MeteoVerdict-Verify/tree/main/ledger">Ledger</a>
+          <a href="https://github.com/JerryWoof/MeteoVerdict-Verify/tree/main/ledger">Release files</a>
           {" · "}
           <a href="https://meteoverdict.cz">meteoverdict.cz</a> is a different site. This page is only the verification log.
         </p>

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BarChart, LineChart } from "./charts";
+import { BarChart } from "./charts";
 import { preselect, seriesColor } from "./lib/codec";
 import { loadSelection, saveSelection } from "./lib/selectionMemory";
-import { fmt, fmtDay, fmtTime, seriesName } from "./lib/format";
+import { fmt, fmtTime, seriesName } from "./lib/format";
 import { emptyLeadTitle, scoredLeadVisual } from "./lib/coverage";
 import { firstScoredLead, leadOpensAfterObservations, leadPairCount, leadWindow } from "./lib/leads";
 import { unweighted } from "./lib/score";
@@ -73,7 +73,7 @@ export function Overview({
 }) {
   const initialVariable = catalog.primary[0] ?? catalog.variables[0];
   const [variable, setVariable] = useState(initialVariable);
-  const [lead, setLead] = useState<LeadPick>(() => firstScoredLead(catalog.leads, byVariable?.[initialVariable]));
+  const [lead, setLead] = useState<LeadPick>("all");
   const [selected, setSelected] = useState<string[]>([]);
   const custom = useRef(loadSelection("overview") != null);
   const [stationSort, setStationSort] = useState<string>("name");
@@ -116,31 +116,6 @@ export function Overview({
 
   const unit = catalog.units[variable] ?? "";
   const names = catalog.names;
-
-  const dayChart = useMemo(() => {
-    if (!active) return null;
-    const days = active.by_day.days;
-    const lines = selected.map((id) => {
-      const values = days.map((_, dayIndex) => {
-        if (lead === "all") {
-          const samples: number[] = [];
-          for (const doc of Object.values(active.by_day.leads)) {
-            if (doc.n[dayIndex] <= 0) continue;
-            const seriesIndex = doc.series.indexOf(id);
-            const value = seriesIndex < 0 ? null : doc.mae[seriesIndex][dayIndex];
-            if (value != null) samples.push(value);
-          }
-          return unweighted(samples);
-        }
-        const doc = active.by_day.leads[String(lead)];
-        if (!doc || doc.n[dayIndex] <= 0) return null;
-        const seriesIndex = doc.series.indexOf(id);
-        return seriesIndex < 0 ? null : doc.mae[seriesIndex][dayIndex];
-      });
-      return { id, name: seriesName(names, id), color: seriesColor(id), values };
-    });
-    return { labels: days.map(fmtDay), series: lines };
-  }, [active, selected, lead, names]);
 
   const leadBars = useMemo(() => {
     if (!active) return null;
@@ -250,10 +225,9 @@ export function Overview({
         />
       </div>
       <p className="hint lead-counts" data-testid="lead-counts">
-        Common pairs for {catalog.variable_labels[variable] ?? variable}:{" "}
-        {counts.map((item) => `D+${item.lead} ${item.n.toLocaleString("en-GB")}`).join(" · ")}. A dimmed lead has
-        ČHMÚ data for under half of its 24-hour range and can still be opened. A lead with no scored station-hours
-        is disabled.
+        {catalog.variable_labels[variable] ?? variable}
+        {" · "}
+        {counts.map((item) => `D+${item.lead} ${item.n.toLocaleString("en-GB")}`).join(" · ")}
       </p>
 
       {lead !== "all" && leadEmpty ? (
@@ -266,83 +240,12 @@ export function Overview({
         </p>
       ) : (
         <>
-          <p className="fair">
-            {lead === "all" ? (
-              <>
-                Full MAE, bias and RMSE are the unweighted mean of the rounded D+ scores
-                {overall && overall.leads_used.length ? ` (D+${overall.leads_used.join(", D+")})` : ""}. Leads with no
-                pairs are left out of that mean. A series missing from a lead is left out of that lead, not filled in.
-              </>
-            ) : (
-              <>
-                D+{lead} uses {block?.n.toLocaleString("en-GB")} common station-hours
-                {block ? ` out of ${block.ai_pairs.toLocaleString("en-GB")} hours where the AI and an observation both exist` : ""},
-                from {block?.snaps ?? 0} snapshots and {block?.stations ?? 0} stations.
-                {block?.short ? " This sample is still below the usual minimum of 24 pairs." : ""}
-              </>
-            )}{" "}
-            Every series in the table is scored on those same hours.
-          </p>
-
           <SeriesToggles ids={ranked.series} names={names} selected={selected} onChange={changeSeries} />
-          <p className="hint">
-            The chart starts with MeteoVerdict, MeteoVerdict AI, ICON-D2, ALADIN 1 km, and the next-best series by MAE
-            that is not already in that set. Ticks on this page are remembered. The ranking table keeps the true MAE order.
-          </p>
 
-          <div className="matrix-wrap">
-            <table className="matrix">
-              <caption>MAE ({unit}) for the chart series, overall and by lead</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Series</th>
-                  <th scope="col" className={lead === "all" ? "here" : ""}>Full</th>
-                  {catalog.leads.map((item) => (
-                    <th key={item} scope="col" className={lead === item ? "here" : ""}>
-                      D+{item}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {selected.map((id) => (
-                  <tr key={id} className={id === "ai" ? "is-ai" : undefined}>
-                    <th scope="row">{seriesName(names, id)}</th>
-                    <td className="num">{fmt(overall ? valueAt(overall.series, overall.mae, id) : null)}</td>
-                    {catalog.leads.map((item) => {
-                      const doc = active.leads[String(item)];
-                      return (
-                        <td key={item} className="num">
-                          {fmt(doc ? valueAt(doc.series, doc.mae, id) : null)}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="chart-grid">
-            <figure>
-              <figcaption>
-                MAE by lead
-                {counts.some((item) => item.n === 0)
-                  ? ` · no bar where n = 0 (${counts
-                      .filter((item) => item.n === 0)
-                      .map((item) => `D+${item.lead}`)
-                      .join(", ")})`
-                  : ""}
-              </figcaption>
-              {leadBars && <BarChart {...leadBars} ariaLabel={`MAE by lead for ${selected.length} series`} yLabel={unit} zero />}
-            </figure>
-            <figure>
-              <figcaption>MAE by snapshot day{lead === "all" ? " (mean of the leads scored that day)" : ""}</figcaption>
-              {dayChart && dayChart.labels.length > 0 && (
-                <LineChart {...dayChart} ariaLabel="MAE by snapshot day" yLabel={unit} zero />
-              )}
-            </figure>
-          </div>
+          <figure>
+            <figcaption>MAE versus ČHMÚ ({unit})</figcaption>
+            {leadBars && <BarChart {...leadBars} ariaLabel={`MAE by lead for ${selected.length} series`} yLabel={unit} zero />}
+          </figure>
 
           <ScoreTable
             names={names}
@@ -364,49 +267,61 @@ export function Overview({
             </p>
           )}
 
-          <div className="station-head">
-            <h2>By station</h2>
-            <button type="button" className="text-btn" onClick={() => setAllStationColumns((value) => !value)}>
-              {allStationColumns ? "Show chart series only" : "Show every ranked series"}
-            </button>
-          </div>
-          <p className="hint">
-            Same series as the table. A station-hour counts only when each of those series has a value there.
-            {lead === "all" ? " The all-leads cell is the unweighted mean of the leads that have pairs at that station." : ""}
-          </p>
-          <div className="table-wrap">
-            <table className="stations">
-              <thead>
-                <tr>
-                  <th scope="col">
-                    <button type="button" onClick={() => setStationSort("name")}>Station</button>
-                  </th>
-                  <th scope="col">Pairs</th>
-                  {columnIds.map((id) => (
-                    <th key={id} scope="col">
-                      <button type="button" onClick={() => setStationSort(id)}>{seriesName(names, id)}</button>
+          <details className="fold">
+            <summary>By station</summary>
+            <div className="station-head">
+              <p className="hint">
+                Same hours as the ranking. A cell is empty when that station has no pairs in this window.
+              </p>
+              <button type="button" className="text-btn" onClick={() => setAllStationColumns((value) => !value)}>
+                {allStationColumns ? "Chart series" : "Every ranked series"}
+              </button>
+            </div>
+            <div className="table-wrap">
+              <table className="stations">
+                <thead>
+                  <tr>
+                    <th scope="col">
+                      <button type="button" onClick={() => setStationSort("name")}>Station</button>
                     </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {stationRows.map((row) => (
-                  <tr key={row.station.id}>
-                    <th scope="row">
-                      {row.station.name}
-                      <span className="elev">{Math.round(row.station.elev)} m</span>
-                    </th>
-                    <td className="num">{row.pairs || "—"}</td>
+                    <th scope="col">Pairs</th>
                     {columnIds.map((id) => (
-                      <td key={id} className="num">{fmt(row.maes[id])}</td>
+                      <th key={id} scope="col">
+                        <button type="button" onClick={() => setStationSort(id)}>{seriesName(names, id)}</button>
+                      </th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {stationRows.map((row) => (
+                    <tr key={row.station.id}>
+                      <th scope="row">
+                        {row.station.name}
+                        <span className="elev">{Math.round(row.station.elev)} m</span>
+                      </th>
+                      <td className="num">{row.pairs || "—"}</td>
+                      {columnIds.map((id) => (
+                        <td key={id} className="num">{fmt(row.maes[id])}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
         </>
       )}
+      <p className="footnote">
+        Truth is the ČHMÚ observation. A pair counts only when the forecast and the observation both exist; nothing
+        is filled from an older release. D+k is valid time minus snapshot time in [24k, 24k+24) hours. Full is the
+        unweighted mean of the rounded lead scores that have pairs, on the same hours for every series.
+        {lead === "all" && overall?.leads_used.length
+          ? ` This Full value uses D+${overall.leads_used.join(", D+")}.`
+          : ""}
+        {lead !== "all" && block
+          ? ` D+${lead} has ${block.n.toLocaleString("en-GB")} common station-hours.`
+          : ""}
+      </p>
       <ObsNote days={catalog.obs_days} />
     </section>
   );

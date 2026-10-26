@@ -303,10 +303,7 @@ export function Snapshots({ catalog }: { catalog: Catalog }) {
             />
           </div>
           <p className="hint">
-            One station and one release. Each selected model is a solid line. The dotted line is the ČHMÚ observation,
-            drawn only where those model lines have values. A dimmed release or lead has observations for under half of
-            its 24-hour day. A lead with no model series is disabled. The table is this station, on the common pairs in
-            the window.
+            One release, one station. The dotted line is the ČHMÚ observation on the same hours as the selected models.
           </p>
           {waiting && <p className="banner">Loading the release…</p>}
           {!waiting && releaseId && (!chart || chart.series.length === 0) && (
