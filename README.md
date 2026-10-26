@@ -39,7 +39,7 @@ The static site in [`web/`](web/) is the station-score view. The apex `meteoverd
    - A weekly job asks the Internet Archive to save the repository page and ledger (`wayback.yml`).
 8. **Limits and weaknesses, openly.**
    - Only the four snapshots a day are verified; intermediate issues, shown on the website between snapshots, are not (see above).
-   - The ledger proves *when* a snapshot existed and that it was not altered afterwards. It cannot prove that the AI had no knowledge of the future: that rests on the model's training rules and the rules in the pre-registration.
+   - The ledger proves *when* a snapshot existed and that it was not altered afterwards.
    - The AI's code, weights and features and the weights of the blend are private; this log holds outputs only.
    - Our blend and the public models' values at villages and stations are derived by our own (private) code, so the log is the only record of them.
    - Failed or late runs show up as `missing` snapshots, counted and never repaired afterwards. Forecast issues from 19–22 October 2026 are anchored late (planned): their timestamps date the anchoring, not the creation.
