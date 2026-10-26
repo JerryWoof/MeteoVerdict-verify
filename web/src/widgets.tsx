@@ -10,6 +10,8 @@ export function ScoreTable({
   bias,
   rmse,
   leadsFor,
+  openId,
+  onOpen,
 }: {
   names: Record<string, string>;
   unit: string;
@@ -18,11 +20,16 @@ export function ScoreTable({
   bias: number[];
   rmse: number[];
   leadsFor?: Record<string, number[]>;
+  openId?: string | null;
+  onOpen?: (id: string) => void;
 }) {
   return (
     <div className="table-wrap">
       <table className="scores">
-        <caption>Ordered by MAE on the common pairs. A lower MAE is a closer forecast. This order is not a prize.</caption>
+        <caption>
+          Ordered by MAE on the common pairs. A lower MAE is a closer forecast. This order is not a prize.
+          {onOpen ? " Open a row for the station-hours behind that number." : ""}
+        </caption>
         <thead>
           <tr>
             <th scope="col">Order</th>
@@ -34,21 +41,39 @@ export function ScoreTable({
           </tr>
         </thead>
         <tbody>
-          {series.map((id, index) => (
-            <tr key={id} className={id === "ai" ? "is-ai" : undefined}>
-              <td className="num">{index + 1}</td>
-              <td>
-                <span className="swatch" style={{ background: seriesColor(id) }} />
-                {seriesName(names, id)}
-              </td>
-              <td className="num">{fmt(mae[index])}</td>
-              <td className="num">{fmt(bias[index])}</td>
-              <td className="num">{fmt(rmse[index])}</td>
-              {leadsFor && (
-                <td className="num">{(leadsFor[id] ?? []).map((lead) => `D+${lead}`).join(", ") || "—"}</td>
-              )}
-            </tr>
-          ))}
+          {series.map((id, index) => {
+            const open = openId === id;
+            return (
+              <tr key={id} className={[id === "ai" ? "is-ai" : "", open ? "is-open" : ""].filter(Boolean).join(" ") || undefined}>
+                <td className="num">{index + 1}</td>
+                <td>
+                  {onOpen ? (
+                    <button
+                      type="button"
+                      className="row-open"
+                      aria-expanded={open}
+                      aria-controls="model-detail"
+                      onClick={() => onOpen(id)}
+                    >
+                      <span className="swatch" style={{ background: seriesColor(id) }} />
+                      {seriesName(names, id)}
+                    </button>
+                  ) : (
+                    <>
+                      <span className="swatch" style={{ background: seriesColor(id) }} />
+                      {seriesName(names, id)}
+                    </>
+                  )}
+                </td>
+                <td className="num">{fmt(mae[index])}</td>
+                <td className="num">{fmt(bias[index])}</td>
+                <td className="num">{fmt(rmse[index])}</td>
+                {leadsFor && (
+                  <td className="num">{(leadsFor[id] ?? []).map((lead) => `D+${lead}`).join(", ") || "—"}</td>
+                )}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

@@ -7,6 +7,7 @@ import { emptyLeadTitle, scoredLeadVisual } from "./lib/coverage";
 import { firstScoredLead, leadOpensAfterObservations, leadPairCount, leadWindow } from "./lib/leads";
 import { unweighted } from "./lib/score";
 import type { Catalog, LeadPick, VariableScore } from "./types";
+import { ModelDetail } from "./modelDetail";
 import { ExcludedList, ObsNote, ScoreTable, Segmented, SeriesToggles } from "./widgets";
 
 function LeadGap({
@@ -78,6 +79,7 @@ export function Overview({
   const custom = useRef(loadSelection("overview") != null);
   const [stationSort, setStationSort] = useState<string>("name");
   const [allStationColumns, setAllStationColumns] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
 
   const active = byVariable?.[variable] ?? null;
   const counts = catalog.leads.map((item) => {
@@ -90,6 +92,14 @@ export function Overview({
     if (lead === "all") return;
     if (scoredLeadVisual(active?.leads[String(lead)]) === "empty") setLead(firstScoredLead(catalog.leads, active));
   }, [lead, active, catalog.leads]);
+
+  useEffect(() => {
+    setOpenId(null);
+  }, [variable, lead, modelVersion]);
+
+  function toggleModel(id: string) {
+    setOpenId((current) => (current === id ? null : id));
+  }
   const leadKey = lead === "all" ? null : String(lead);
   const block = leadKey ? active?.leads[leadKey] : null;
   const overall = active?.overall;
@@ -244,7 +254,15 @@ export function Overview({
 
           <figure>
             <figcaption>MAE versus ČHMÚ ({unit})</figcaption>
-            {leadBars && <BarChart {...leadBars} ariaLabel={`MAE by lead for ${selected.length} series`} yLabel={unit} zero />}
+            {leadBars && (
+              <BarChart
+                {...leadBars}
+                ariaLabel={`MAE by lead for ${selected.length} series`}
+                yLabel={unit}
+                zero
+                onSeries={toggleModel}
+              />
+            )}
           </figure>
 
           <ScoreTable
@@ -255,7 +273,24 @@ export function Overview({
             bias={ranked.bias}
             rmse={ranked.rmse}
             leadsFor={lead === "all" ? overall?.leads_for : undefined}
+            openId={openId}
+            onOpen={toggleModel}
           />
+          {openId && active && ranked.series.includes(openId) && (
+            <ModelDetail
+              catalog={catalog}
+              active={active}
+              variable={variable}
+              lead={lead}
+              modelId={openId}
+              ranked={{
+                series: ranked.series,
+                mae: ranked.mae,
+                leads_for: lead === "all" ? overall?.leads_for : undefined,
+              }}
+              onClose={() => setOpenId(null)}
+            />
+          )}
           {block && <ExcludedList items={block.excluded} names={names} />}
           {block && Object.keys(block.dropped_run_unavailable).length > 0 && (
             <p className="hint">

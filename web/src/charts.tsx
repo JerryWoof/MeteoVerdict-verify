@@ -155,7 +155,13 @@ export function LineChart({
   );
 }
 
-export function BarChart({ labels, series, ariaLabel, yLabel }: Frame) {
+export function BarChart({
+  labels,
+  series,
+  ariaLabel,
+  yLabel,
+  onSeries,
+}: Frame & { onSeries?: (id: string) => void }) {
   const labelId = useId();
   const pad = { l: 56, r: 12, t: 22, b: 36 };
   const innerW = W - pad.l - pad.r;
@@ -188,7 +194,34 @@ export function BarChart({ labels, series, ariaLabel, yLabel }: Frame) {
                 const y = yAt(value);
                 const top = Math.min(y, y0);
                 const height = Math.max(1, Math.abs(y0 - y));
-                return <rect key={line.id} x={left + seriesIndex * bar} y={top} width={bar - 2} height={height} fill={line.color} rx={1} />;
+                return (
+                  <rect
+                    key={line.id}
+                    x={left + seriesIndex * bar}
+                    y={top}
+                    width={Math.max(bar - 2, 1)}
+                    height={height}
+                    fill={line.color}
+                    rx={1}
+                    className={onSeries ? "hit" : undefined}
+                    tabIndex={onSeries ? 0 : undefined}
+                    role={onSeries ? "button" : undefined}
+                    aria-label={onSeries ? `${line.name}. Open how this MAE was calculated.` : undefined}
+                    onClick={onSeries ? () => onSeries(line.id) : undefined}
+                    onKeyDown={
+                      onSeries
+                        ? (event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              onSeries(line.id);
+                            }
+                          }
+                        : undefined
+                    }
+                  >
+                    {onSeries && <title>{`${line.name}. Open how this MAE was calculated.`}</title>}
+                  </rect>
+                );
               })}
               <text x={pad.l + index * group + group / 2} y={H - 14} className="tick" textAnchor="middle">
                 {label}
