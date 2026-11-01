@@ -5,8 +5,7 @@ import { loadSelection, saveSelection } from "./lib/selectionMemory";
 import { fmt, fmtTime, seriesName } from "./lib/format";
 import { emptyLeadTitle, scoredLeadVisual } from "./lib/coverage";
 import { firstScoredLead, leadOpensAfterObservations, leadPairCount, leadWindow } from "./lib/leads";
-import { unweighted } from "./lib/score";
-import type { Catalog, LeadPick, VariableScore } from "./types";
+import type { Catalog, VariableScore } from "./types";
 import { ModelDetail } from "./modelDetail";
 import { ExcludedList, ObsNote, ScoreTable, Segmented, SeriesToggles } from "./widgets";
 
@@ -74,7 +73,7 @@ export function Overview({
 }) {
   const initialVariable = catalog.primary[0] ?? catalog.variables[0];
   const [variable, setVariable] = useState(initialVariable);
-  const [lead, setLead] = useState<LeadPick>("all");
+  const [lead, setLead] = useState(() => firstScoredLead(catalog.leads, byVariable?.[initialVariable] ?? null));
   const [selected, setSelected] = useState<string[]>([]);
   const custom = useRef(loadSelection("overview") != null);
   const [stationSort, setStationSort] = useState<string>("name");
@@ -86,11 +85,12 @@ export function Overview({
     const doc = active?.leads[String(item)];
     return { lead: item, n: leadPairCount(active, item), visual: scoredLeadVisual(doc), doc };
   });
-  const leadEmpty = lead !== "all" && counts.find((item) => item.lead === lead)?.visual === "empty";
+  const leadEmpty = counts.find((item) => item.lead === lead)?.visual === "empty";
 
   useEffect(() => {
-    if (lead === "all") return;
-    if (scoredLeadVisual(active?.leads[String(lead)]) === "empty") setLead(firstScoredLead(catalog.leads, active));
+    if (scoredLeadVisual(active?.leads[String(lead)]) !== "empty") return;
+    const next = firstScoredLead(catalog.leads, active);
+    if (leadPairCount(active, next) > 0 && next !== lead) setLead(next);
   }, [lead, active, catalog.leads]);
 
   useEffect(() => {
@@ -100,10 +100,8 @@ export function Overview({
   function toggleModel(id: string) {
     setOpenId((current) => (current === id ? null : id));
   }
-  const leadKey = lead === "all" ? null : String(lead);
-  const block = leadKey ? active?.leads[leadKey] : null;
-  const overall = active?.overall;
-  const ranked = lead === "all" ? overall : block;
+  const block = active?.leads[String(lead)] ?? null;
+  const ranked = block;
   const preset = ranked && ranked.series.length ? preselect(ranked.series, ranked.mae).join("|") : "";
 
   useEffect(() => {
@@ -144,46 +142,20 @@ export function Overview({
 
   const stationRows = useMemo(() => {
     if (!active) return [];
-    const columns = lead === "all" ? (ranked?.series ?? selected) : allStationColumns ? (ranked?.series ?? selected) : selected;
+    const columns = allStationColumns ? (ranked?.series ?? selected) : selected;
     return catalog.stations
       .map((station) => {
         const maes: Record<string, number | null> = {};
-        let pairs = 0;
-        if (lead === "all") {
-          const counts: number[] = [];
-          for (const item of catalog.leads) {
-            const doc = active.by_station[String(item)];
-            if (!doc) continue;
-            const at = doc.ids.indexOf(station.id);
-            if (at < 0 || doc.n[at] <= 0) continue;
-            counts.push(doc.n[at]);
+        const doc = active.by_station[String(lead)];
+        const at = doc ? doc.ids.indexOf(station.id) : -1;
+        const pairs = doc && at >= 0 ? doc.n[at] : 0;
+        for (const id of columns) {
+          if (!doc || at < 0 || pairs === 0) {
+            maes[id] = null;
+            continue;
           }
-          pairs = counts.reduce((sum, value) => sum + value, 0);
-          for (const id of columns) {
-            const samples: number[] = [];
-            for (const item of catalog.leads) {
-              const doc = active.by_station[String(item)];
-              if (!doc) continue;
-              const at = doc.ids.indexOf(station.id);
-              if (at < 0 || doc.n[at] <= 0) continue;
-              const seriesIndex = doc.series.indexOf(id);
-              const value = seriesIndex < 0 ? null : doc.mae[seriesIndex][at];
-              if (value != null) samples.push(value);
-            }
-            maes[id] = unweighted(samples);
-          }
-        } else {
-          const doc = active.by_station[String(lead)];
-          const at = doc ? doc.ids.indexOf(station.id) : -1;
-          pairs = doc && at >= 0 ? doc.n[at] : 0;
-          for (const id of columns) {
-            if (!doc || at < 0 || pairs === 0) {
-              maes[id] = null;
-              continue;
-            }
-            const seriesIndex = doc.series.indexOf(id);
-            maes[id] = seriesIndex < 0 ? null : doc.mae[seriesIndex][at];
-          }
+          const seriesIndex = doc.series.indexOf(id);
+          maes[id] = seriesIndex < 0 ? null : doc.mae[seriesIndex][at];
         }
         return { station, pairs, maes, columns };
       })
@@ -212,25 +184,18 @@ export function Overview({
         <Segmented
           label="Lead"
           value={lead}
-          options={[
-            {
-              value: "all" as LeadPick,
-              label: "Full",
-              title: "Unweighted mean of the D+0…D+5 scores that have pairs",
-            },
-            ...counts.map((item) => ({
-              value: item.lead as LeadPick,
-              label: `D+${item.lead}`,
-              dim: item.visual === "thin",
-              disabled: item.visual === "empty",
-              title:
-                item.visual === "empty"
-                  ? emptyLeadTitle(item.lead)
-                  : item.visual === "thin" && item.doc?.obs_window
-                    ? `${leadWindow(item.lead).label} · ČHMÚ covers ${item.doc.obs_slots} of ${item.doc.obs_window} hours in this lead`
-                    : `${leadWindow(item.lead).label} · ${item.n.toLocaleString("en-GB")} common pairs${item.lead >= 4 ? " · secondary lead (rule R2)" : ""}`,
-            })),
-          ]}
+          options={counts.map((item) => ({
+            value: item.lead,
+            label: `D+${item.lead}`,
+            dim: item.visual === "thin",
+            disabled: item.visual === "empty",
+            title:
+              item.visual === "empty"
+                ? emptyLeadTitle(item.lead)
+                : item.visual === "thin" && item.doc?.obs_window
+                  ? `${leadWindow(item.lead).label} · ČHMÚ covers ${item.doc.obs_slots} of ${item.doc.obs_window} hours in this lead`
+                  : `${leadWindow(item.lead).label} · ${item.n.toLocaleString("en-GB")} common pairs${item.lead >= 4 ? " · secondary lead (rule R2)" : ""}`,
+          }))}
           onChange={setLead}
         />
       </div>
@@ -240,13 +205,13 @@ export function Overview({
         {counts.map((item) => `D+${item.lead} ${item.n.toLocaleString("en-GB")}`).join(" · ")}
       </p>
 
-      {lead !== "all" && leadEmpty ? (
+      {leadEmpty ? (
         <LeadGap catalog={catalog} variableLabel={catalog.variable_labels[variable] ?? variable} lead={lead} counts={counts} />
       ) : !active || !ranked || ranked.series.length === 0 ? (
         <p className="banner">
-          No scored pairs for {catalog.variable_labels[variable] ?? variable}
-          {lead === "all" ? " yet" : ` at D+${lead} yet`}. Forecasts are stored from the first public-v2 snapshot.
-          A lead can be scored only after the valid hours have observations. Withdrawn releases are not included.
+          No scored pairs for {catalog.variable_labels[variable] ?? variable} at D+{lead} yet. Forecasts are stored
+          from the first public-v2 snapshot. A lead can be scored only after the valid hours have observations.
+          Withdrawn releases are not included.
         </p>
       ) : (
         <>
@@ -285,7 +250,6 @@ export function Overview({
               ranked={{
                 series: ranked.series,
                 mae: ranked.mae,
-                leads_for: lead === "all" ? overall?.leads_for : undefined,
               }}
               onClose={() => setOpenId(null)}
             />
@@ -305,15 +269,11 @@ export function Overview({
             <summary>By station</summary>
             <div className="station-head">
               <p className="hint">
-                {lead === "all"
-                  ? "Same series as the ranking, in that order."
-                  : "Same hours as the ranking. A cell is empty when that station has no pairs in this window."}
+                Same hours as the ranking. A cell is empty when that station has no pairs in this window.
               </p>
-              {lead !== "all" && (
-                <button type="button" className="text-btn" onClick={() => setAllStationColumns((value) => !value)}>
-                  {allStationColumns ? "Chart series" : "Every ranked series"}
-                </button>
-              )}
+              <button type="button" className="text-btn" onClick={() => setAllStationColumns((value) => !value)}>
+                {allStationColumns ? "Chart series" : "Every ranked series"}
+              </button>
             </div>
             <div className="table-wrap">
               <table className="stations">
@@ -351,14 +311,9 @@ export function Overview({
       )}
       <p className="footnote">
         Truth is the ČHMÚ observation. A pair counts only when the forecast and the observation both exist; nothing
-        is filled from an older release. D+k is valid time minus snapshot time in [24k, 24k+24) hours. Full is the
-        unweighted mean of the rounded lead scores that have pairs, on the same hours for every series.
-        {lead === "all" && overall?.leads_used.length
-          ? ` This Full value uses D+${overall.leads_used.join(", D+")}.`
-          : ""}
-        {lead !== "all" && block
-          ? ` D+${lead} has ${block.n.toLocaleString("en-GB")} common station-hours.`
-          : ""}
+        is filled from an older release. D+k is valid time minus snapshot time in [24k, 24k+24) hours. Each lead is
+        ranked on its own common station-hours.
+        {block ? ` D+${lead} has ${block.n.toLocaleString("en-GB")} common station-hours.` : ""}
       </p>
       <ObsNote days={catalog.obs_days} />
     </section>

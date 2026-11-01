@@ -43,8 +43,9 @@ function leadSamples(
 
 /**
  * Per-station MAE for one series on the leads behind the open score.
- * A single lead uses that lead’s common-set MAE. Full uses the same unweighted
- * mean of rounded lead scores as the station table. Ranking order is not touched.
+ * One lead uses that lead’s common-set MAE. Several leads use an unweighted
+ * mean of the rounded per-lead scores. The Scores page passes one lead.
+ * Ranking order is not touched.
  */
 export function stationDetail(
   stationIds: string[],
