@@ -1,14 +1,7 @@
 import { fmt, seriesName } from "./lib/format";
 import { leadWindow } from "./lib/leads";
 import { stationDetail } from "./lib/modelDetail";
-import { unweighted } from "./lib/score";
-import type { Catalog, LeadPick, LeadScore, VariableScore } from "./types";
-
-function joinNumbers(values: string[]): string {
-  if (values.length <= 1) return values[0] ?? "";
-  if (values.length === 2) return `${values[0]} and ${values[1]}`;
-  return `${values.slice(0, -1).join(", ")}, and ${values[values.length - 1]}`;
-}
+import type { Catalog, LeadScore, VariableScore } from "./types";
 
 function signed(value: number): string {
   const text = fmt(value);
@@ -37,9 +30,9 @@ export function ModelDetail({
   catalog: Catalog;
   active: VariableScore;
   variable: string;
-  lead: LeadPick;
+  lead: number;
   modelId: string;
-  ranked: { series: string[]; mae: number[]; leads_for?: Record<string, number[]> };
+  ranked: { series: string[]; mae: number[] };
   onClose: () => void;
 }) {
   const names = catalog.names;
@@ -47,11 +40,10 @@ export function ModelDetail({
   const label = catalog.variable_labels[variable] ?? variable;
   const index = ranked.series.indexOf(modelId);
   const network = index < 0 ? null : ranked.mae[index];
-  const leads = lead === "all" ? (ranked.leads_for?.[modelId] ?? []) : [lead];
   const stations = stationDetail(
     catalog.stations.map((station) => station.id),
     active.by_station,
-    leads,
+    [lead],
     modelId,
     ranked.series,
   );
@@ -60,20 +52,13 @@ export function ModelDetail({
   const widest = stations.length > 1 ? stations[stations.length - 1] : undefined;
   const neighbor = index === 0 ? ranked.series[1] : index > 0 ? ranked.series[index - 1] : undefined;
   const neighborMae = neighbor ? ranked.mae[ranked.series.indexOf(neighbor)] : undefined;
-  const block: LeadScore | undefined = lead === "all" ? undefined : active.leads[String(lead)];
-  const pieces = leads.flatMap((item) => {
-    const doc = active.leads[String(item)];
-    if (!doc) return [];
-    const at = doc.series.indexOf(modelId);
-    if (at < 0) return [];
-    return [{ lead: item, mae: doc.mae[at], n: doc.n }];
-  });
+  const block: LeadScore | undefined = active.leads[String(lead)];
   const anchor = seriesName(names, "ai");
 
   return (
     <section className="detail" id="model-detail" aria-labelledby="model-detail-title" data-testid="model-detail">
       <div className="detail-head">
-        <p className="eyebrow">{label} · {lead === "all" ? "Full" : `D+${lead}`}</p>
+        <p className="eyebrow">{label} · D+{lead}</p>
         <h2 id="model-detail-title">{seriesName(names, modelId)}</h2>
         <button type="button" className="text-btn" onClick={onClose}>Close</button>
       </div>
@@ -92,7 +77,7 @@ export function ModelDetail({
         A station-hour counts only when every series in this ranking has a forecast and the observation exists.
         A missing hour is left missing. Nothing is filled from an older release.
       </p>
-      {lead !== "all" && block && network != null && (
+      {block && network != null && (
         <p>
           D+{lead} is valid time minus snapshot time in [{leadWindow(lead).start}, {leadWindow(lead).start + 24}) hours
           ({leadWindow(lead).label}). This MAE uses {block.n.toLocaleString("en-GB")} common station-hours
@@ -100,16 +85,6 @@ export function ModelDetail({
           {block.ai_pairs !== block.n
             ? ` ${block.ai_pairs.toLocaleString("en-GB")} hours have both ${anchor} and an observation; ${block.n.toLocaleString("en-GB")} of them also have every ranked series.`
             : ""}
-        </p>
-      )}
-      {lead === "all" && network != null && pieces.length > 0 && (
-        <p>
-          Full is the unweighted mean of this series’ rounded lead scores. Each lead keeps its own common hours.
-          {pieces.map((piece) => ` D+${piece.lead} is ${fmt(piece.mae)} ${unit} on ${piece.n.toLocaleString("en-GB")} station-hours.`).join("")}
-          {" "}
-          {unweighted(pieces.map((piece) => piece.mae)) === network
-            ? `The mean of ${joinNumbers(pieces.map((piece) => fmt(piece.mae)))} is ${fmt(network)} ${unit}.`
-            : `Those lead scores are averaged with equal weight. The published Full MAE is ${fmt(network)} ${unit}.`}
         </p>
       )}
       {neighbor && neighborMae != null && network != null && (

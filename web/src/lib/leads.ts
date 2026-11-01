@@ -1,4 +1,4 @@
-import type { LeadPick, VariableScore } from "../types";
+import type { VariableScore } from "../types";
 
 /** Common pairs for one lead. A missing block, or a block with no series, counts as zero. */
 export function leadPairCount(active: VariableScore | null | undefined, lead: number): number {
@@ -7,12 +7,12 @@ export function leadPairCount(active: VariableScore | null | undefined, lead: nu
   return doc.n;
 }
 
-/** First D+k that has pairs. Falls back to the all-leads view when every lead is empty. */
-export function firstScoredLead(leads: number[], active: VariableScore | null | undefined): LeadPick {
+/** First D+k that has pairs. When every lead is empty, the first catalog lead. */
+export function firstScoredLead(leads: number[], active: VariableScore | null | undefined): number {
   for (const lead of leads) {
     if (leadPairCount(active, lead) > 0) return lead;
   }
-  return "all";
+  return leads[0] ?? 0;
 }
 
 export function leadWindow(lead: number): { start: number; endHour: number; label: string } {

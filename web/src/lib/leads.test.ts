@@ -47,7 +47,8 @@ describe("lead selection", () => {
     const active = variable({ 0: lead(100), 1: lead(40) });
     expect(firstScoredLead([0, 1, 2, 3, 4, 5], active)).toBe(0);
     expect(firstScoredLead([0, 1, 2, 3, 4, 5], variable({ 1: lead(40) }))).toBe(1);
-    expect(firstScoredLead([0, 1, 2], variable({}))).toBe("all");
+    expect(firstScoredLead([0, 1, 2], variable({}))).toBe(0);
+    expect(firstScoredLead([], null)).toBe(0);
     expect(leadPairCount(variable({ 2: lead(0) }), 2)).toBe(0);
     expect(leadPairCount(null, 0)).toBe(0);
   });

@@ -60,9 +60,11 @@ export function Info({ catalog }: { catalog: Catalog }) {
         get a second MAE on a different set of hours.
       </p>
       <p>
-        D+k is valid time minus snapshot time in [24k, 24k+24) hours, for k = 0…5. Every series uses that same window.
-        Full is the unweighted mean of the rounded lead scores that have pairs. A lead with no pairs is left out of
-        the mean. The preregistration’s main bands are D+1 to D+3. D+4 and D+5 are secondary.
+        D+k is valid time minus snapshot time in [24k, 24k+24) hours, for k = 0…5. Scores ranks one lead at a time.
+        Every series in that table uses the same window and the same common station-hours. Leads are not averaged
+        into one ranking: D+1 and D+2 are easier than D+3, D+4 and D+5, and a model that only runs on the short
+        leads would look better in a single mean than it does on any one lead. The preregistration’s main bands are
+        D+1 to D+3. D+4 and D+5 are secondary.
       </p>
 
       <h2>Scores and Ledger</h2>
