@@ -1,5 +1,5 @@
 import type { Catalog, Excluded, ObsDay } from "./types";
-import { seriesColor } from "./lib/codec";
+import { seriesPaint } from "./lib/codec";
 import { fmt, reasonText, seriesName } from "./lib/format";
 
 export function ScoreTable({
@@ -52,12 +52,12 @@ export function ScoreTable({
                       aria-controls="model-detail"
                       onClick={() => onOpen(id)}
                     >
-                      <span className="swatch" style={{ background: seriesColor(id) }} />
+                      <span className="swatch" style={{ background: seriesPaint(id) }} />
                       {seriesName(names, id)}
                     </button>
                   ) : (
                     <>
-                      <span className="swatch" style={{ background: seriesColor(id) }} />
+                      <span className="swatch" style={{ background: seriesPaint(id) }} />
                       {seriesName(names, id)}
                     </>
                   )}
@@ -98,7 +98,7 @@ export function SeriesToggles({
                 checked={on}
                 onChange={() => onChange(on ? selected.filter((item) => item !== id) : [...selected, id])}
               />
-              <span className="swatch" style={{ background: seriesColor(id) }} />
+              <span className="swatch" style={{ background: seriesPaint(id) }} />
               {seriesName(names, id)}
             </label>
           );

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BarChart } from "./charts";
-import { preselect, seriesColor } from "./lib/codec";
+import { preselect, seriesPaint } from "./lib/codec";
 import { loadSelection, saveSelection } from "./lib/selectionMemory";
 import { fmt, fmtTime, seriesName } from "./lib/format";
 import { emptyLeadTitle, scoredLeadVisual } from "./lib/coverage";
@@ -131,7 +131,7 @@ export function Overview({
     const lines = selected.map((id) => ({
       id,
       name: seriesName(names, id),
-      color: seriesColor(id),
+      color: seriesPaint(id),
       values: catalog.leads.map((item) => {
         const doc = active.leads[String(item)];
         return doc ? valueAt(doc.series, doc.mae, id) : null;

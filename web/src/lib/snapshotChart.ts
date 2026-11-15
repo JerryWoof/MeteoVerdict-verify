@@ -4,7 +4,7 @@ import { inLead, leadOf } from "./score";
 /** ČHMÚ observation stroke. Models stay solid so this dotted line stays distinct. */
 export const OBS_DASH = "2 4";
 export const OBS_NAME = "Obs · naměřené";
-export const OBS_COLOR = "#1d2430";
+export const OBS_COLOR = "var(--ink)";
 export const SERIES_WIDTH = 2;
 
 export type StationGrid = {
