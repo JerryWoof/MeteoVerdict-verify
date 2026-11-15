@@ -48,7 +48,7 @@ code { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.92em;
 }
 
 h1 {
-  font-family: "Source Serif 4", Georgia, serif;
+  font-family: "Source Serif 4 Variable", Georgia, serif;
   font-weight: 640;
   font-size: clamp(2.2rem, 4vw, 3.3rem);
   letter-spacing: -0.03em;
@@ -231,7 +231,7 @@ td.num, th.num { text-align: right; }
 .detail-head h2 { grid-column: 1; }
 .detail-head .text-btn { grid-column: 2; grid-row: 1 / span 2; }
 .detail h3 {
-  font-family: "Source Serif 4", Georgia, serif;
+  font-family: "Source Serif 4 Variable", Georgia, serif;
   font-weight: 560;
   font-size: 1.2rem;
   margin: 1.15rem 0 0.25rem;
@@ -254,7 +254,7 @@ td.num, th.num { text-align: right; }
 .extremes strong {
   display: block;
   color: var(--ink);
-  font-family: "Source Serif 4", Georgia, serif;
+  font-family: "Source Serif 4 Variable", Georgia, serif;
   font-weight: 560;
   font-size: 1.25rem;
 }
@@ -277,7 +277,7 @@ td.num, th.num { text-align: right; }
 }
 .elev { display: block; color: var(--muted); font-weight: 400; font-size: 0.78rem; }
 .station-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; margin-top: 1.4rem; }
-h2 { font-family: "Source Serif 4", Georgia, serif; font-weight: 560; font-size: 1.45rem; margin: 0; }
+h2 { font-family: "Source Serif 4 Variable", Georgia, serif; font-weight: 560; font-size: 1.45rem; margin: 0; }
 
 .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; }
 figure { margin: 0.4rem 0 0.8rem; }
