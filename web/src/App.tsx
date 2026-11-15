@@ -114,6 +114,7 @@ export function App() {
           {" · "}
           <a href="https://meteoverdict.cz">meteoverdict.cz</a> is a different site. This page is only the verification log.
         </p>
+        <p>This page keeps your selection only in your browser (localStorage). It uses no cookies and no analytics.</p>
         {chain && <p className="hash">Chain head {chain}</p>}
       </footer>
     </>

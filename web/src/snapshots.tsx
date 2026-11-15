@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LineChart } from "./charts";
 import { forecastDates, fullAxis, leadDayAxis, showClockTick, utcMidnight, type AxisTick } from "./lib/chartAxis";
-import { decodeStations, loadJson, preselect, seriesColor } from "./lib/codec";
+import { decodeStations, loadJson, preselect, seriesPaint } from "./lib/codec";
 import { calendarDayFacts, emptyLeadTitle, leadState, releaseCoverageThin, type LeadFact } from "./lib/coverage";
 import { fmtTime, seriesName } from "./lib/format";
 import { pickDefaultRelease } from "./lib/releases";
@@ -183,7 +183,7 @@ export function Snapshots({ catalog }: { catalog: Catalog }) {
       selected,
       lead: "all",
       names: catalog.names,
-      color: seriesColor,
+      color: seriesPaint,
       plainNames: true,
       axis: { times: ticks.map((tick) => tick.iso), endExclusiveMs: ticks[ticks.length - 1]?.ms ?? 0 },
     });

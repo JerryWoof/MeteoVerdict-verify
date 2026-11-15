@@ -82,6 +82,15 @@ export function seriesColor(id: string): string {
   return SERIES_COLOR[id] ?? SERIES_FALLBACK;
 }
 
+/**
+ * Same color as a CSS custom property with the hex as fallback, so styles.css can lighten
+ * individual series in dark mode (--sc-<id>). Use in style props, not in SVG attributes.
+ */
+export function seriesPaint(id: string): string {
+  const hex = SERIES_COLOR[id];
+  return hex ? `var(--sc-${id}, ${hex})` : SERIES_FALLBACK;
+}
+
 export async function loadJson(url: string): Promise<unknown> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`${response.status} ${url}`);

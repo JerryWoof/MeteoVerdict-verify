@@ -111,7 +111,7 @@ export function LineChart({
     <div className="chart">
       <svg
         viewBox={`0 0 ${W} ${H}`}
-        role="img"
+        role="group"
         aria-labelledby={labelId}
         onMouseLeave={() => {
           setHover(null);
@@ -148,7 +148,7 @@ export function LineChart({
               key={line.id}
               d={d}
               fill="none"
-              stroke={line.color}
+              style={{ stroke: line.color }}
               strokeWidth={paint.width}
               strokeOpacity={paint.opacity}
               strokeDasharray={line.dash}
@@ -228,7 +228,7 @@ export function BarChart({
     <div className="chart">
       <svg
         viewBox={`0 0 ${W} ${H}`}
-        role="img"
+        role="group"
         aria-labelledby={labelId}
         onMouseLeave={() => {
           setHover(null);
@@ -267,9 +267,8 @@ export function BarChart({
                     y={top}
                     width={Math.max(bar - 2, 1)}
                     height={height}
-                    fill={line.color}
+                    style={{ fill: line.color, stroke: paint.width > 2 ? line.color : "none" }}
                     fillOpacity={paint.opacity}
-                    stroke={paint.width > 2 ? line.color : "none"}
                     strokeWidth={paint.width > 2 ? 1.5 : 0}
                     rx={1}
                     className="hit"
