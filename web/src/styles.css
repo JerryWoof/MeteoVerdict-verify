@@ -433,3 +433,9 @@ footer a { color: var(--teal); }
     --sc-gem_global: #cf7ee0;
   }
 }
+
+/* the scores arrive after the first paint: the footer starts below the screen, not under the
+   header (pushed down later, it was the page's layout shift) */
+main#content {
+  min-height: 100vh;
+}
